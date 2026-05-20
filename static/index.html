@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AntiGravity — Network Traffic Manager</title>
+  <meta name="description" content="Yerel ağ trafik yönetimi ve cihaz izolasyon aracı." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<!-- ─── Arka Plan Animasyonu ─────────────────────────────────────────── -->
+<canvas id="bg-canvas"></canvas>
+
+<!-- ─── Header ──────────────────────────────────────────────────────── -->
+<header class="header">
+  <div class="header-left">
+    <div class="logo">
+      <span class="logo-hex">⬡</span>
+      <span class="logo-text">AntiGravity</span>
+    </div>
+    <span class="logo-sub">Network Traffic Manager</span>
+  </div>
+
+  <nav class="mode-tabs">
+    <button class="mode-tab active" id="tab-basic" onclick="setMode('basic')">
+      <span class="tab-icon">⊕</span> Basic
+    </button>
+    <button class="mode-tab" id="tab-expert" onclick="setMode('expert')">
+      <span class="tab-icon">⚙</span> Expert
+    </button>
+  </nav>
+
+  <div class="header-right">
+    <div class="status-pill" id="status-pill">
+      <span class="dot green"></span>
+      <span id="status-text">Hazır</span>
+    </div>
+    <div class="ip-info" id="ip-info">IP: —</div>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- BASIC MOD                                                           -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<main id="view-basic" class="view active">
+
+  <!-- Tarama Paneli -->
+  <section class="scan-banner glass">
+    <div class="scan-info">
+      <h1 class="scan-title">Ağ Cihazları</h1>
+      <p class="scan-sub" id="scan-sub">Ağınızı tarayın ve cihazları görün.</p>
+    </div>
+    <div class="scan-controls">
+      <input type="text" id="network-input" class="input-field"
+             placeholder="192.168.1.0/24" style="width:180px" />
+      <button class="btn btn-cyan" id="scan-btn" onclick="startScan()">
+        <span class="btn-icon">⊕</span> Ağı Tara
+      </button>
+      <button class="btn btn-red-outline" id="restore-all-btn"
+              onclick="restoreAll()" style="display:none">
+        ■ Tümünü Bağla
+      </button>
+    </div>
+  </section>
+
+  <!-- İlerleme Çubuğu -->
+  <div class="progress-wrap" id="progress-wrap" style="display:none">
+    <div class="progress-bar" id="progress-bar"></div>
+    <span class="progress-label" id="progress-label">Taranıyor...</span>
+  </div>
+
+  <!-- Cihaz Kartları -->
+  <div class="devices-grid" id="devices-grid">
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">⬡</div>
+      <p>Ağı taramak için <strong>Ağı Tara</strong> butonuna tıklayın.</p>
+    </div>
+  </div>
+
+  <!-- Aktif İzolasyon Banner -->
+  <div class="isolation-bar" id="isolation-bar" style="display:none">
+    <span class="iso-dot">●</span>
+    <span id="iso-count">0 cihaz izole edildi</span>
+    <span class="iso-sub">— İnternet bağlantısı kesildi</span>
+  </div>
+
+</main>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- EXPERT MOD                                                          -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<main id="view-expert" class="view">
+
+  <div class="expert-grid">
+
+    <!-- Sol: Kontroller -->
+    <div class="expert-left">
+
+      <!-- ARP Spoofing -->
+      <section class="glass card">
+        <h2 class="card-title"><span class="card-icon cyan">⇄</span> ARP Spoofing (IPv4)</h2>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Hedef IP</label>
+            <input type="text" id="ex-arp-target" class="input-field"
+                   placeholder="192.168.1.79" />
+          </div>
+          <div class="form-group">
+            <label>Gateway IP</label>
+            <input type="text" id="ex-arp-gw" class="input-field"
+                   placeholder="192.168.1.1" />
+          </div>
+        </div>
+        <div class="form-row" style="align-items:center;gap:8px;margin-top:8px">
+          <label class="toggle-label">
+            <input type="checkbox" id="ex-fwd" />
+            IP Forwarding (şeffaf mod)
+          </label>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-green" onclick="expertArpStart()">▶ Başlat</button>
+          <button class="btn btn-red-outline" onclick="expertArpStop()">■ Durdur + Onar</button>
+        </div>
+        <div class="mini-status" id="arp-status">—</div>
+      </section>
+
+      <!-- NDP Spoofing -->
+      <section class="glass card">
+        <h2 class="card-title"><span class="card-icon purple">↯</span> NDP Spoofing (IPv6)</h2>
+        <div class="form-row">
+          <div class="form-group" style="flex:2">
+            <label>Hedef IPv6</label>
+            <input type="text" id="ex-ndp-target" class="input-field"
+                   placeholder="fe80::xxxx  veya  2a00::..." />
+          </div>
+          <div class="form-group">
+            <label>Hedef MAC (opsiyonel)</label>
+            <input type="text" id="ex-ndp-tmac" class="input-field"
+                   placeholder="36:6f:9b:..." />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Router IPv6</label>
+          <input type="text" id="ex-ndp-router" class="input-field"
+                 placeholder="fe80::1" value="fe80::1" />
+        </div>
+        <div class="form-group" style="margin-top:8px">
+          <label>MAC → IPv6 Çevirici</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="ex-mac-conv" class="input-field"
+                   placeholder="aa:bb:cc:dd:ee:ff" style="flex:1" />
+            <button class="btn btn-ghost" onclick="convMac()">Çevir</button>
+          </div>
+          <div id="mac-conv-result" class="conv-result"></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-purple" onclick="expertNdpStart()">▶ Başlat</button>
+          <button class="btn btn-red-outline" onclick="expertNdpStop()">■ Durdur + Onar</button>
+        </div>
+        <div class="mini-status" id="ndp-status">—</div>
+      </section>
+
+      <!-- Flow Control -->
+      <section class="glass card">
+        <h2 class="card-title"><span class="card-icon yellow">⋮</span> Paket Akış Kontrolü</h2>
+        <div class="mode-pills">
+          <label class="pill-radio"><input type="radio" name="flow-mode" value="FORWARD" checked /> <span class="pill green">FORWARD</span></label>
+          <label class="pill-radio"><input type="radio" name="flow-mode" value="DROP" /> <span class="pill red">DROP</span></label>
+          <label class="pill-radio"><input type="radio" name="flow-mode" value="THROTTLE" /> <span class="pill yellow">THROTTLE</span></label>
+          <label class="pill-radio"><input type="radio" name="flow-mode" value="INSPECT" /> <span class="pill cyan">INSPECT</span></label>
+        </div>
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group">
+            <label>Throttle (kbps)</label>
+            <input type="number" id="ex-kbps" class="input-field" value="512" style="width:90px" />
+          </div>
+          <div class="form-group" style="flex:2">
+            <label>BPF Filtresi</label>
+            <input type="text" id="ex-bpf" class="input-field"
+                   placeholder="tcp port 80  |  host 192.168.1.x" />
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-cyan" onclick="expertFlowStart()">▶ Başlat</button>
+          <button class="btn btn-red-outline" onclick="expertFlowStop()">■ Durdur</button>
+        </div>
+        <div class="mini-status" id="flow-status">—</div>
+      </section>
+
+    </div>
+
+    <!-- Sağ: Log + Cache -->
+    <div class="expert-right">
+
+      <!-- Sistem Durumu -->
+      <section class="glass card" id="expert-status-card">
+        <h2 class="card-title"><span class="card-icon cyan">⬡</span> Sistem Durumu</h2>
+        <div id="expert-status-body" class="status-body">—</div>
+        <button class="btn btn-ghost" style="margin-top:8px" onclick="loadStatus()">⟳ Yenile</button>
+      </section>
+
+      <!-- Neighbor Cache -->
+      <section class="glass card">
+        <h2 class="card-title"><span class="card-icon gray">⊞</span> Neighbor Cache</h2>
+        <div class="cache-scroll" id="cache-output">—</div>
+        <button class="btn btn-ghost" style="margin-top:8px" onclick="loadCache()">⟳ Yenile</button>
+      </section>
+
+      <!-- Canlı Log -->
+      <section class="glass card log-card">
+        <div class="log-header">
+          <h2 class="card-title" style="margin:0"><span class="card-icon cyan">▸</span> Canlı Log</h2>
+          <button class="btn btn-ghost" onclick="clearLog()">Temizle</button>
+        </div>
+        <div class="log-scroll" id="expert-log"></div>
+      </section>
+
+    </div>
+  </div>
+
+</main>
+
+<!-- ─── Global Log Overlay (Basic mod) ──────────────────────────────── -->
+<div class="log-tray" id="log-tray">
+  <div class="log-tray-header">
+    <span>▸ Log</span>
+    <button class="btn-xs" onclick="toggleLog()">×</button>
+  </div>
+  <div class="log-scroll" id="basic-log"></div>
+</div>
+
+<button class="log-fab" id="log-fab" onclick="toggleLog()">▸ Log</button>
+
+<!-- ─── Website Monitor Side Panel ──────────────────────────────── -->
+<div class="monitor-panel" id="monitor-panel">
+
+  <!-- Panel Başlığı -->
+  <div class="monitor-header">
+    <div class="monitor-header-left">
+      <span class="monitor-icon">&#128065;</span>
+      <div>
+        <div class="monitor-title" id="monitor-title">Ziyaretçi İzleme</div>
+        <div class="monitor-subtitle" id="monitor-subtitle">Başlatılıyor...</div>
+      </div>
+    </div>
+    <button class="monitor-close-btn" id="monitor-close-btn" onclick="closeMonitor()">&#x2715;</button>
+  </div>
+
+  <!-- İstatistikler -->
+  <div class="monitor-stats">
+    <div class="monitor-stat">
+      <span class="monitor-stat-val" id="mon-count">0</span>
+      <span class="monitor-stat-label">Site</span>
+    </div>
+    <div class="monitor-stat">
+      <span class="monitor-stat-val" id="mon-dns-count">0</span>
+      <span class="monitor-stat-label">DNS</span>
+    </div>
+    <div class="monitor-stat">
+      <span class="monitor-stat-val" id="mon-https-count">0</span>
+      <span class="monitor-stat-label">HTTPS</span>
+    </div>
+    <div class="monitor-stat-status">
+      <span class="monitor-live-dot" id="mon-live-dot"></span>
+      <span class="monitor-live-txt" id="mon-live-txt">Bağlanıyor</span>
+    </div>
+  </div>
+
+  <!-- Araç Butonları -->
+  <div class="monitor-toolbar">
+    <button class="monitor-tool-btn" onclick="clearMonitorList()" title="Listeyi Temizle">
+      &#x1F5D1; Temizle
+    </button>
+    <button class="monitor-tool-btn" onclick="copyMonitorList()" title="Kopyala">
+      &#x1F4CB; Kopyala
+    </button>
+    <button class="monitor-stop-btn" id="monitor-stop-btn" onclick="stopMonitor()">
+      &#x25A0; İzlemeyi Durdur
+    </button>
+  </div>
+
+  <!-- Domain Listesi -->
+  <div class="monitor-list" id="monitor-list">
+    <div class="monitor-empty" id="monitor-empty">
+      <div class="monitor-empty-icon">&#x1F310;</div>
+      <div>Henüz ziyaret yok.<br><small>Hedef cihazda bir siteye gidin...</small></div>
+    </div>
+  </div>
+
+</div>
+<!-- Monitor Overlay (panel açıkken arkaplan karartısı) -->
+<div class="monitor-overlay" id="monitor-overlay" onclick="closeMonitor()"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
