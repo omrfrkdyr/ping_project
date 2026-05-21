@@ -199,7 +199,6 @@ class NodeDiscovery:
                     self.hosts[ip] = HostEntry(ip, mac, hostname)
                     new_hosts += 1
 
-        sep_count = 66
         cprint(f"\n  [✓] Tarama tamamlandı!", Colors.GREEN, bold=True)
         cprint(f"  [*] Süre: {elapsed:.2f}s | Toplam: {len(self.hosts)} host | Yeni: {new_hosts}", Colors.WHITE)
 

@@ -25,10 +25,10 @@
   </div>
 
   <nav class="mode-tabs">
-    <button class="mode-tab active" id="tab-basic" onclick="setMode('basic')">
+    <button class="mode-tab active" id="tab-basic" onclick="setMode('basic')" aria-label="Basic moda geç">
       <span class="tab-icon">⊕</span> Basic
     </button>
-    <button class="mode-tab" id="tab-expert" onclick="setMode('expert')">
+    <button class="mode-tab" id="tab-expert" onclick="setMode('expert')" aria-label="Expert moda geç">
       <span class="tab-icon">⚙</span> Expert
     </button>
   </nav>
@@ -56,11 +56,11 @@
     <div class="scan-controls">
       <input type="text" id="network-input" class="input-field"
              placeholder="192.168.1.0/24" style="width:180px" />
-      <button class="btn btn-cyan" id="scan-btn" onclick="startScan()">
+      <button class="btn btn-cyan" id="scan-btn" onclick="startScan()" aria-label="Ağı tara">
         <span class="btn-icon">⊕</span> Ağı Tara
       </button>
       <button class="btn btn-red-outline" id="restore-all-btn"
-              onclick="restoreAll()" style="display:none">
+              onclick="restoreAll()" style="display:none" aria-label="Tüm izolasyonları kaldır">
         ■ Tümünü Bağla
       </button>
     </div>
@@ -121,8 +121,8 @@
           </label>
         </div>
         <div class="btn-row">
-          <button class="btn btn-green" onclick="expertArpStart()">▶ Başlat</button>
-          <button class="btn btn-red-outline" onclick="expertArpStop()">■ Durdur + Onar</button>
+          <button class="btn btn-green" onclick="expertArpStart()" aria-label="ARP spoofing başlat">▶ Başlat</button>
+          <button class="btn btn-red-outline" onclick="expertArpStop()" aria-label="ARP spoofing durdur">■ Durdur + Onar</button>
         </div>
         <div class="mini-status" id="arp-status">—</div>
       </section>
@@ -157,8 +157,8 @@
           <div id="mac-conv-result" class="conv-result"></div>
         </div>
         <div class="btn-row">
-          <button class="btn btn-purple" onclick="expertNdpStart()">▶ Başlat</button>
-          <button class="btn btn-red-outline" onclick="expertNdpStop()">■ Durdur + Onar</button>
+          <button class="btn btn-purple" onclick="expertNdpStart()" aria-label="NDP spoofing başlat">▶ Başlat</button>
+          <button class="btn btn-red-outline" onclick="expertNdpStop()" aria-label="NDP spoofing durdur">■ Durdur + Onar</button>
         </div>
         <div class="mini-status" id="ndp-status">—</div>
       </section>
@@ -184,8 +184,8 @@
           </div>
         </div>
         <div class="btn-row">
-          <button class="btn btn-cyan" onclick="expertFlowStart()">▶ Başlat</button>
-          <button class="btn btn-red-outline" onclick="expertFlowStop()">■ Durdur</button>
+          <button class="btn btn-cyan" onclick="expertFlowStart()" aria-label="Flow control başlat">▶ Başlat</button>
+          <button class="btn btn-red-outline" onclick="expertFlowStop()" aria-label="Flow control durdur">■ Durdur</button>
         </div>
         <div class="mini-status" id="flow-status">—</div>
       </section>

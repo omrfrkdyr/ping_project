@@ -5,6 +5,41 @@
 
 'use strict';
 
+// ─── Toast Notification System ──────────────────────────────────────
+function showToast(msg, type = 'info', duration = 3500) {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.style.cssText = 'position:fixed;top:70px;right:20px;z-index:999;display:flex;flex-direction:column;gap:8px;pointer-events:none;';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  const colors = { info: '#00d4ff', error: '#f85149', success: '#3fb950', warn: '#d29922' };
+  const borderColor = colors[type] || colors.info;
+  toast.style.cssText = `
+    padding:10px 18px; border-radius:8px; font-size:12px; font-family:'Inter',sans-serif;
+    background:rgba(22,27,34,0.95); color:#e6edf3; border:1px solid ${borderColor};
+    backdrop-filter:blur(12px); pointer-events:auto; max-width:340px;
+    animation:toast-in .25s ease; box-shadow:0 4px 24px rgba(0,0,0,.5);
+  `;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(20px)';
+    toast.style.transition = 'all .25s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+
+// Toast animasyonu için CSS inject
+(function() {
+  const style = document.createElement('style');
+  style.textContent = '@keyframes toast-in { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:none} }';
+  document.head.appendChild(style);
+})();
+
 // ─── State ──────────────────────────────────────────────────────────
 let currentMode  = 'basic';
 let scanInterval = null;
@@ -77,15 +112,17 @@ async function loadStatus() {
     const body = document.getElementById('expert-status-body');
     if (body) {
       body.innerHTML = `
-        <div class="status-row"><span>Yerel IPv4</span><span>${d.local_ip}</span></div>
-        <div class="status-row"><span>Yerel IPv6</span><span style="font-size:10px">${d.local_v6||'—'}</span></div>
-        <div class="status-row"><span>Gateway</span><span>${d.gateway_ip||'—'}</span></div>
-        <div class="status-row"><span>Keşfedilen Cihaz</span><span>${d.device_count}</span></div>
-        <div class="status-row"><span>Aktif İzolasyon</span><span style="color:${isolated.length?'var(--red)':'var(--green)'}">${isolated.length}</span></div>
-        <div class="status-row"><span>Flow Control</span><span style="color:${d.flow_active?'var(--cyan)':'var(--fg3)'}">${d.flow_active ? d.flow_mode.toUpperCase() : 'Kapalı'}</span></div>
+        <div class="status-row"><span>Yerel IPv4</span><span>${escHtml(d.local_ip)}</span></div>
+        <div class="status-row"><span>Yerel IPv6</span><span style="font-size:10px">${escHtml(d.local_v6||'—')}</span></div>
+        <div class="status-row"><span>Gateway</span><span>${escHtml(d.gateway_ip||'—')}</span></div>
+        <div class="status-row"><span>Keşfedilen Cihaz</span><span>${escHtml(String(d.device_count))}</span></div>
+        <div class="status-row"><span>Aktif İzolasyon</span><span style="color:${isolated.length?'var(--red)':'var(--green)'}">${escHtml(String(isolated.length))}</span></div>
+        <div class="status-row"><span>Flow Control</span><span style="color:${d.flow_active?'var(--cyan)':'var(--fg3)'}">${d.flow_active ? escHtml(d.flow_mode.toUpperCase()) : 'Kapalı'}</span></div>
       `;
     }
-  } catch (e) { /* offline */ }
+  } catch (e) {
+    showToast('Durum bilgisi alınamadı.', 'warn');
+  }
 }
 
 // ─── Neighbor Cache ───────────────────────────────────────────────────
@@ -95,7 +132,9 @@ async function loadCache() {
     const d = await r.json();
     const el = document.getElementById('cache-output');
     if (el) el.textContent = d.lines ? d.lines.join('\n') : 'Veri yok.';
-  } catch (e) {}
+  } catch (e) {
+    showToast('Neighbor cache alınamadı.', 'warn');
+  }
 }
 
 // ─── Scan ─────────────────────────────────────────────────────────────
@@ -119,7 +158,13 @@ async function startScan() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ network: net, timeout: 3 })
     });
-  } catch (e) {}
+  } catch (e) {
+    showToast('Tarama başlatılamadı. Sunucu bağlantısını kontrol edin.', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">⊕</span> Ağı Tara';
+    wrap.style.display = 'none';
+    return;
+  }
 
   // Poll scan progress
   if (scanInterval) clearInterval(scanInterval);
@@ -139,7 +184,9 @@ async function startScan() {
         await renderDevices();
         loadStatus();
       }
-    } catch (e) {}
+    } catch (e) {
+      showToast('Tarama durumu alınamadı.', 'warn');
+    }
   }, 600);
 }
 
@@ -170,7 +217,9 @@ async function renderDevices() {
     loadStatus();
     // Sniffer'dan gelen yeni isimler için polling başlat
     startNamePolling();
-  } catch (e) {}
+  } catch (e) {
+    showToast('Cihaz listesi alınamadı.', 'error');
+  }
 }
 
 function buildDeviceCard(dev, index) {
@@ -194,14 +243,14 @@ function buildDeviceCard(dev, index) {
                  ✓ Bağlantıyı Geri Ver
                </button>`;
   } else {
-    btnHtml = `<button class="isolate-btn cut" onclick="isolateDevice('${dev.ip}','${dev.mac}',this)">
+    btnHtml = `<button class="isolate-btn cut" onclick="isolateDevice('${dev.ip}','${dev.mac}',this)" aria-label="${escHtml(dev.ip)} cihazının internetini kes">
                  ■ İnterneti Kes
                </button>`;
   }
 
   // Monitör butonu (gateway değilse)
   const monitorBtn = !isGateway
-    ? `<button class="monitor-btn" id="monbtn-${dev.ip.replace(/\./g,'-')}" onclick="startMonitor('${dev.ip}','${escHtml(dev.friendly_name || dev.vendor || dev.ip)}')">👁 Monitör Et</button>`
+    ? `<button class="monitor-btn" id="monbtn-${dev.ip.replace(/\./g,'-')}" onclick="startMonitor('${dev.ip}','${escHtml(dev.friendly_name || dev.vendor || dev.ip)}')" aria-label="${escHtml(dev.ip)} cihazını izle">👁 Monitör Et</button>`
     : '';
 
   // ── Katman 1: Cihaz Adı (friendly_name > vendor > type) ──
@@ -601,7 +650,9 @@ async function startMonitor(ip, label) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ip })
     });
-  } catch (e) {}
+  } catch (e) {
+    showToast('Monitor başlatılamadı.', 'error');
+  }
 
   // SSE bağlantısı kur
   _connectMonitorSSE(ip);
@@ -714,7 +765,9 @@ async function stopMonitor(closePanelToo = true) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ip })
     });
-  } catch (e) {}
+  } catch (e) {
+    showToast('Monitor durdurulurken hata oluştu.', 'warn');
+  }
 
   // Monitör butonunu sıfırla
   const btnId = 'monbtn-' + ip.replace(/\./g, '-');
@@ -781,5 +834,7 @@ window.addEventListener('DOMContentLoaded', () => {
     // Expert gateway otomatik doldur
     const gwEl = document.getElementById('ex-arp-gw');
     if (gwEl && d.gateway_ip) gwEl.value = d.gateway_ip;
-  }).catch(() => {});
+  }).catch(() => {
+    showToast('Sunucuya bağlanılamadı.', 'error');
+  });
 });

@@ -27,7 +27,9 @@ except ImportError:
     SCAPY_OK = False
 
 
-MAX_HISTORY = 300   # Hafızada tutulacak maksimum domain sayısı
+from config import cfg
+
+MAX_HISTORY = cfg.MAX_HISTORY
 
 
 def _now_str() -> str:
@@ -166,6 +168,9 @@ class DnsMonitor:
         # Basit filtre: sadece geçerli domain gibi görünenler
         if "." not in domain:
             return
+        # CDN/tracker domain'lerini filtrele
+        if _is_cdn_or_tracker(domain):
+            return
         # Tekrar filtresi — aynı domain'i son 60 saniyede tekrar ekleme
         key = domain
         with self._lock:
@@ -181,9 +186,9 @@ class DnsMonitor:
             }
             self.history.appendleft(entry)   # En yeni üste
 
-        # 60 saniye sonra seen'den çıkar (aynı site tekrar görünebilsin)
+        # Konfigüre edilebilir süre sonra seen'den çıkar (aynı site tekrar görünebilsin)
         def _unsee():
-            time.sleep(60)
+            time.sleep(cfg.DOMAIN_DEDUP_SECONDS)
             with self._lock:
                 self._seen.discard(key)
         threading.Thread(target=_unsee, daemon=True).start()

@@ -32,6 +32,8 @@ import time
 import threading
 import os
 import platform
+import subprocess
+import logging
 from typing import Optional
 
 try:
@@ -47,10 +49,14 @@ from modules.utils import (
 )
 
 
-# ─── Sabitler ─────────────────────────────────────────────────────────────────
+from config import cfg
 
-PACKET_INTERVAL = 1.5   # Sahte ARP paketi gönderme aralığı (saniye)
-RESTORE_COUNT   = 5     # Onarma sırasında kaç kez gerçek ARP gönderileceği
+logger = logging.getLogger("antigravity.redirect")
+
+# ─── Sabitler (config'den) ────────────────────────────────────────────────────
+
+PACKET_INTERVAL = cfg.PACKET_INTERVAL
+RESTORE_COUNT   = cfg.RESTORE_COUNT
 
 
 # ─── Ana Sınıf ────────────────────────────────────────────────────────────────
@@ -80,6 +86,7 @@ class TrafficRedirector:
         self.iface = iface or (conf.iface if SCAPY_AVAILABLE else "eth0")
         self.active = False
         self.packet_count = 0
+        self._pkt_lock = threading.Lock()  # packet_count thread safety
         self._fwd_enabled = False   # IP forwarding'i biz mi actik?
         self._thread:    Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -106,7 +113,10 @@ class TrafficRedirector:
                     f.write("1")
                 cprint("  [✓] IP Forwarding ETKİNLEŞTİRİLDİ (Linux)", Colors.GREEN)
             elif system == "Darwin":  # macOS
-                os.system("sysctl -w net.inet.ip.forwarding=1 > /dev/null 2>&1")
+                subprocess.run(
+                    ["sysctl", "-w", "net.inet.ip.forwarding=1"],
+                    capture_output=True, timeout=5
+                )
                 cprint("  [✓] IP Forwarding ETKİNLEŞTİRİLDİ (macOS)", Colors.GREEN)
             elif system == "Windows":
                 cprint("  [!] Windows IP Forwarding: Ağ Bağdaştırıcısı → Özellikler → Paylaşım sekmesini kullanın.", Colors.YELLOW)
@@ -114,6 +124,7 @@ class TrafficRedirector:
             return True
         except (PermissionError, OSError) as e:
             cprint(f"  [!] IP Forwarding etkinleştirilemedi: {e}", Colors.YELLOW)
+            logger.warning("IP Forwarding etkinleştirilemedi: %s", e)
             return False
 
     def disable_ip_forwarding(self) -> bool:
@@ -124,10 +135,14 @@ class TrafficRedirector:
                 with open("/proc/sys/net/ipv4/ip_forward", "w") as f:
                     f.write("0")
             elif system == "Darwin":
-                os.system("sysctl -w net.inet.ip.forwarding=0 > /dev/null 2>&1")
+                subprocess.run(
+                    ["sysctl", "-w", "net.inet.ip.forwarding=0"],
+                    capture_output=True, timeout=5
+                )
             cprint("  [✓] IP Forwarding DEVRE DIŞI bırakıldı.", Colors.GRAY)
             return True
-        except (PermissionError, OSError):
+        except (PermissionError, OSError) as e:
+            logger.warning("IP Forwarding devre dışı bırakılamadı: %s", e)
             return False
 
     # ── MAC Çözümleme ─────────────────────────────────────────────────────────
@@ -240,7 +255,8 @@ class TrafficRedirector:
                 send(pkt_to_target,  verbose=False)
                 send(pkt_to_gateway, verbose=False)
 
-                self.packet_count += 2
+                with self._pkt_lock:
+                    self.packet_count += 2
 
             except OSError as e:
                 cprint(f"\n  [!] Paket gönderme hatası: {e}", Colors.RED)
@@ -363,7 +379,8 @@ class TrafficRedirector:
 
         # Zehirleme thread'ini başlat
         self._stop_event.clear()
-        self.packet_count = 0
+        with self._pkt_lock:
+            self.packet_count = 0
         self._thread = threading.Thread(
             target=self._poison_loop,
             name="ARP-Poison-Thread",
@@ -402,9 +419,10 @@ class TrafficRedirector:
             if self._fwd_enabled:
                 self.disable_ip_forwarding()
 
-        total = self.packet_count
+        with self._pkt_lock:
+            total = self.packet_count
+            self.packet_count = 0
         self.active = False
-        self.packet_count = 0
 
         cprint(f"  [✓] Yönlendirme durduruldu. Toplam {total} sahte ARP paketi gönderildi.", Colors.GREEN)
         return total

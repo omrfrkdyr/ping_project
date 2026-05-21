@@ -1,176 +1,206 @@
-# AntiGravity 🚀
-### Ağ Trafiği Yönetimi ve Topoloji Analizi — Eğitim Modülü
+# AntiGravity — Network Traffic Manager
 
-> **⚠️ YASAL UYARI**: Bu araç **yalnızca kendi kontrolündeki, izole test
-> ortamlarında** ağ protokollerini anlamak amacıyla kullanılabilir.
-> İzinsiz ağlarda kullanmak birçok ülkede **yasadışıdır**.
+> ⚠️ **UYARI**: Bu araç **yalnızca eğitim amaçlıdır**. Kendi ağınızda, izinli cihazlarda ve
+> izole bir lab ortamında kullanın. Yetkisiz erişim ve müdahale **yasal suç** teşkil eder.
 
 ---
 
-## 📁 Proje Yapısı
+## 📖 Genel Bakış
+
+AntiGravity, yerel ağınızdaki cihazları keşfetmenize, izole etmenize ve trafik akışını
+yönetmenize olanak sağlayan bir ağ trafik yönetim aracıdır. Hem CLI hem de modern Web UI
+arayüzü sunar.
+
+### Temel Özellikler
+
+| Özellik | Açıklama |
+|---|---|
+| 🔍 ARP Tarama | Yerel ağdaki tüm cihazları keşfeder |
+| 🚫 Cihaz İzolasyonu | ARP + NDP spoofing ile internet erişimini keser |
+| 📊 Paket Akış Kontrolü | Forward / Drop / Throttle / Inspect modları |
+| 🌐 IPv6 NDP Spoofing | IPv6 neighbor cache zehirleme |
+| 👁 Website Monitor | DNS + TLS SNI ile ziyaret edilen siteleri izler |
+| 🖥 Web UI | Modern dark-theme arayüz (SSE ile canlı güncelleme) |
+
+---
+
+## 🏗 Proje Yapısı
 
 ```
 ping_project/
-├── main.py                          # Ana giriş noktası & interaktif menü
-├── requirements.txt
-└── modules/
-    ├── __init__.py
-    ├── utils.py                     # Renk çıktısı, yetki kontrolü, tablo
-    ├── node_discovery.py            # Modül 1: ARP tabanlı host keşfi
-    ├── traffic_redirection.py       # Modül 2: Çift taraflı ARP güncelleme
-    └── packet_flow_control.py       # Modül 3: Akış kontrolü (drop/throttle/inspect)
+├── main.py                    # CLI arayüzü (menü sistemi)
+├── web_app.py                 # Flask web uygulaması (REST API + SSE)
+├── config.py                  # Merkezi konfigürasyon
+├── requirements.txt           # Python bağımlılıkları
+├── README.md                  # Bu dosya
+│
+├── modules/
+│   ├── utils.py               # ANSI renkler, yardımcı fonksiyonlar, logging
+│   ├── node_discovery.py      # ARP tabanlı ağ keşfi
+│   ├── traffic_redirection.py # ARP cache poisoning (IPv4)
+│   ├── packet_flow_control.py # Paket yakalama ve akış kontrolü
+│   ├── ipv6_ndp.py            # IPv6 NDP keşfi ve NA spoofing
+│   ├── dns_monitor.py         # DNS sorgu ve TLS SNI izleme
+│   ├── oui_table.py           # MAC OUI → vendor/cihaz tanıma
+│   ├── passive_sniffer.py     # Pasif mDNS/DHCP/LLMNR/NetBIOS dinleyici
+│   └── app_state.py           # Thread-safe uygulama durumu (AppState)
+│
+├── static/
+│   ├── index.html             # Web UI ana sayfa
+│   ├── style.css              # Dark theme, glassmorphism tasarım
+│   └── app.js                 # Frontend JavaScript (API, SSE, animasyonlar)
+│
+└── tests/
+    ├── test_utils.py          # utils.py birim testleri
+    ├── test_oui.py            # oui_table.py birim testleri
+    ├── test_dns_monitor.py    # dns_monitor.py birim testleri
+    └── test_passive.py        # passive_sniffer.py birim testleri
 ```
 
 ---
 
-## 🚀 Kurulum & Çalıştırma
+## 🚀 Kurulum
+
+### Gereksinimler
+
+- **Python 3.10+**
+- **Root/sudo yetkisi** (raw socket erişimi için)
+- macOS veya Linux
+
+### Bağımlılıklar
 
 ```bash
-# 1. Bağımlılıkları yükle
 pip install -r requirements.txt
+```
 
-# 2. Root yetkisi ile çalıştır (ham soket gerektirir)
+### Çalıştırma
+
+#### CLI Arayüzü
+```bash
 sudo python3 main.py
 ```
 
----
-
-## 📖 Modüller
-
-### Modül 1 — Node Discovery (Düğüm Keşfi)
-
-**Dosya:** `modules/node_discovery.py`
-
-ARP broadcast istekleri göndererek yerel ağdaki tüm aktif hostları tespit eder.
-
-| Özellik | Açıklama |
-|---|---|
-| Protokol | ARP (Layer 2) |
-| Yöntem | Ethernet Broadcast → ff:ff:ff:ff:ff:ff |
-| Çıktı | IP / MAC / Hostname tablosu |
-| Threading | Kilit korumalı (`threading.Lock`) |
-
-**Çalışma Prensibi:**
-```
-[Analiz PC]  →  ARP Request  →  [Broadcast ff:ff:ff:ff:ff:ff]
-             ←  ARP Reply    ←  [Aktif Host X]
-```
-Sonuç: `srp()` ile toplanan yanıtlardan `(IP, MAC)` çiftleri çıkarılır.
-
----
-
-### Modül 2 — Traffic Redirection (Trafik Yönlendirme)
-
-**Dosya:** `modules/traffic_redirection.py`
-
-Çift taraflı ARP cache zehirleme ile belirli bir düğümün trafiğini analiz
-makinesinden geçirir.
-
-| Özellik | Açıklama |
-|---|---|
-| Protokol | ARP Reply (op=2) |
-| Yön | Hem Kurban → Analiz, hem Gateway → Analiz |
-| Temizlik | `stop()` çağrısı ile orijinal cache onarılır |
-| IP Forwarding | Linux/macOS için otomatik ayarlanır |
-
-**Çalışma Prensibi:**
-```
-Normal    : Kurban ←→ Gateway
-Yönlendirilmiş: Kurban ←→ [Analiz PC] ←→ Gateway
-```
-
-**ARP Paketin Anatomisi:**
-```
-ARP(op=2,              # Reply (is-at)
-    pdst=target_ip,    # Kime (kurban veya gateway)
-    hwdst=target_mac,  # Kime (MAC)
-    psrc=spoof_ip)     # Sahte kaynak IP
-# hwsrc = analiz makinesi MAC'i (otomatik)
-```
-
----
-
-### Modül 3 — Packet Flow Control (Akış Kontrolü)
-
-**Dosya:** `modules/packet_flow_control.py`
-
-Yakalacan paketler üzerinde dört farklı kontrol modu sunar.
-
-| Mod | Davranış |
-|---|---|
-| **FORWARD** | Tüm paketleri şeffaf ilet |
-| **DROP** | Tüm paketleri düşür (bağlantı kesmek) |
-| **THROTTLE** | Bant genişliği sınırlı iletim (kbps simülasyonu) |
-| **INSPECT** | Layer 2/3/4 analizi yap + ilet |
-
-**BPF Filtre Örnekleri:**
+#### Web Arayüzü
 ```bash
-tcp port 80         # Yalnızca HTTP
-udp port 53         # Yalnızca DNS
-host 192.168.1.5    # Yalnızca belirli IP
-icmp                # Yalnızca ping
+sudo python3 web_app.py
 ```
+Tarayıcıda `http://localhost:8080` adresine gidin.
 
-**THROTTLE Hesabı:**
-```python
-delay = (paket_boyutu_bit) / (hedef_bps)
-# Örn: 1500 B × 8 / (512 × 1024) = ~0.023s gecikme
+---
+
+## 📋 CLI Menü Yapısı
+
+```
+[1] Ağ Tarama & Cihaz Keşfi        — ARP ile yerel ağ tarama
+[2] Trafik Yönlendirme (ARP Spoof)  — ARP cache poisoning
+[3] Paket Akış Kontrolü             — Forward/Drop/Throttle/Inspect
+[4] Keşif Sonuçları                  — Taranan cihaz listesi
+[5] Gelişmiş İzolasyon               — Çoklu cihaz ARP+NDP izolasyonu
+[6] IPv6 NDP Keşfi                   — Link-local IPv6 keşfi
+[7] IPv6 NDP Spoofing                — IPv6 neighbor cache poisoning
+[8] MAC Yardımcı Araçları            — MAC→IPv6 çevirici, ping6
+[9] DNS / Website Monitor            — Gerçek zamanlı DNS/SNI izleme
+[M] Tam İzolasyon Modu               — Seçili cihazı ARP+NDP ile izole et
+[0] Çıkış
 ```
 
 ---
 
-## ⚙️ Teknik Notlar
+## 🌐 Web API Endpoint'leri
 
-### Root Yetkisi
-Ham soket açmak (`SOCK_RAW`) için root/Administrator yetkisi zorunludur:
+| Endpoint | Metod | Açıklama |
+|---|---|---|
+| `/api/scan` | POST | ARP tarama başlat |
+| `/api/scan/status` | GET | Tarama durumu |
+| `/api/devices` | GET | Keşfedilen cihaz listesi |
+| `/api/isolate` | POST | Cihaz izole et |
+| `/api/restore` | POST | İzolasyonu kaldır |
+| `/api/restore-all` | POST | Tüm izolasyonları kaldır |
+| `/api/status` | GET | Sistem durumu |
+| `/api/stream` | GET | SSE log akışı |
+| `/api/expert/arp-start` | POST | ARP spoofing başlat |
+| `/api/expert/arp-stop` | POST | ARP spoofing durdur |
+| `/api/expert/ndp-start` | POST | NDP spoofing başlat |
+| `/api/expert/ndp-stop` | POST | NDP spoofing durdur |
+| `/api/expert/flow-start` | POST | Flow control başlat |
+| `/api/expert/flow-stop` | POST | Flow control durdur |
+| `/api/monitor/start` | POST | Website monitor başlat |
+| `/api/monitor/stop` | POST | Website monitor durdur |
+| `/api/monitor/stream/<ip>` | GET | SSE domain akışı |
+| `/api/neighbor-cache` | GET | IPv6 neighbor cache |
+| `/api/mac-to-ipv6` | GET | MAC → IPv6 çevirici |
+
+---
+
+## ⚙️ Konfigürasyon
+
+Tüm sabitler `config.py` dosyasında merkezi olarak yönetilir. Ortam değişkenleri ile geçersiz kılınabilir:
+
+| Ortam Değişkeni | Varsayılan | Açıklama |
+|---|---|---|
+| `AG_WEB_HOST` | `127.0.0.1` | Web sunucu adresi |
+| `AG_WEB_PORT` | `8080` | Web sunucu portu |
+| `AG_PACKET_INTERVAL` | `1.5` | ARP paket gönderme aralığı (sn) |
+| `AG_NDP_INTERVAL` | `1.5` | NDP paket gönderme aralığı (sn) |
+| `AG_MAX_HISTORY` | `300` | DNS monitor hafıza limiti |
+| `AG_LOG_LEVEL` | `INFO` | Log seviyesi |
+| `AG_LOG_FILE` | _(boş)_ | Log dosyası yolu |
+
+---
+
+## 🧪 Testler
+
 ```bash
-sudo python3 main.py          # Linux/macOS
-# Windows: Yönetici olarak çalıştır
-```
+# Tüm testleri çalıştır
+python -m pytest tests/ -v
 
-### IP Forwarding
-Traffic Redirection aktifken paketlerin iletilmesi için:
-```bash
-# Linux (otomatik yapılır):
-echo 1 > /proc/sys/net/ipv4/ip_forward
-
-# macOS (otomatik yapılır):
-sysctl -w net.inet.ip.forwarding=1
-```
-
-### Güvenli Çıkış
-`Ctrl+C` veya menü `[0]` ile çıkıldığında:
-1. ARP cache'ler orijinal hâline döndürülür
-2. IP Forwarding devre dışı bırakılır
-3. Tüm thread'ler temiz sonlandırılır
-
----
-
-## 🔬 Eğitim Senaryoları
-
-### Senaryo 1: Ağ Keşfi
-```
-Menü [1] → Ağ aralığı: 192.168.1.0/24 → Tablo gör
-```
-
-### Senaryo 2: Trafik Analizi (Sanal Makine Çifti)
-```
-Menü [1] → Hedef IP'yi keşfet
-Menü [2] → Yönlendirme başlat (VM hedef, VM gateway)
-Menü [3] → INSPECT modu → DNS/HTTP paketlerini gözlemle
-Menü [5] → Yönlendirmeyi durdur (ARP onar)
-```
-
-### Senaryo 3: Bant Genişliği Simülasyonu
-```
-Menü [2] → Yönlendirmeyi başlat
-Menü [3] → THROTTLE modu → 64 kbps → speedtest yap
+# Tek bir dosyayı çalıştır
+python -m pytest tests/test_utils.py -v
 ```
 
 ---
 
-## 📚 Kaynaklar
+## 📚 Modül Açıklamaları
 
-- [Scapy Belgeleri](https://scapy.readthedocs.io/)
-- [RFC 826 — ARP Protokolü](https://www.rfc-editor.org/rfc/rfc826)
-- [BPF Filtre Sözdizimi](https://www.tcpdump.org/manpages/pcap-filter.7.html)
+### `node_discovery.py`
+ARP (Address Resolution Protocol) tabanlı ağ keşfi. Scapy ile ARP-Request yayınları gönderir,
+yanıt veren cihazların IP, MAC ve hostname bilgilerini toplar.
+
+### `traffic_redirection.py`
+ARP Cache Poisoning tekniği ile ağ trafiğini yönlendirir. Hedef cihaz ve gateway arasına
+girilerek (MITM) trafik kontrolü sağlanır. IP Forwarding desteği ile şeffaf veya izolasyon
+modları desteklenir.
+
+### `packet_flow_control.py`
+MITM konumundayken paket akışını kontrol eder. Dört mod sunar:
+- **FORWARD**: Trafiği olduğu gibi ilet
+- **DROP**: Paketleri sessizce düşür
+- **THROTTLE**: Bant genişliğini kısıtla (kbps)
+- **INSPECT**: Paket detaylarını logla ve ilet
+
+### `ipv6_ndp.py`
+IPv6 Neighbor Discovery Protocol keşfi ve Neighbor Advertisement (NA) spoofing.
+IPv4 ARP'ın IPv6 karşılığı olan NDP mekanizmasını kullanarak IPv6 tabanlı
+cihaz izolasyonu sağlar.
+
+### `dns_monitor.py`
+Hedef cihazın ziyaret ettiği web sitelerini DNS sorguları (UDP 53) ve
+TLS ClientHello SNI (TCP 443) alanları üzerinden gerçek zamanlı izler.
+
+### `oui_table.py`
+MAC adresinin ilk 3 oktetinden (OUI) cihaz üreticisini ve türünü belirler.
+iOS 14+ / Android 10+ rastgele MAC (locally-administered) desteği dahildir.
+
+### `passive_sniffer.py`
+Arka planda mDNS (Bonjour), DHCP Option 12, LLMNR ve NetBIOS paketlerini
+pasif olarak dinleyerek cihaz isimlerini ve sahip adlarını tespit eder.
+
+### `app_state.py`
+Flask web uygulaması için thread-safe global state yöneticisi. Tüm paylaşılan
+veriler (devices, isolations, monitors) RLock koruması altındadır.
+
+---
+
+## 📝 Lisans
+
+Bu proje eğitim amaçlı geliştirilmiştir. Sorumluluk kullanıcıya aittir.

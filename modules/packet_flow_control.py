@@ -26,7 +26,6 @@ Gereksinimler:
 
 import time
 import threading
-import queue
 from enum import Enum
 from typing import Optional, Callable
 
@@ -132,6 +131,14 @@ class PacketFlowController:
         self._sniff_thread: Optional[threading.Thread] = None
         self._filter: Optional[str] = None  # BPF filtresi
         self._inspect_callback: Optional[Callable] = None
+
+        # Dispatch tablosu (her paket için yeniden oluşturma yerine bir kez)
+        self._dispatch = {
+            FlowMode.FORWARD:  self._process_forward,
+            FlowMode.DROP:     self._process_drop,
+            FlowMode.THROTTLE: self._process_throttle,
+            FlowMode.INSPECT:  self._process_inspect,
+        }
 
     # ── Mod Değişikliği ───────────────────────────────────────────────────────
 
@@ -281,14 +288,7 @@ class PacketFlowController:
         if self._stop_event.is_set():
             return
 
-        dispatch = {
-            FlowMode.FORWARD:  self._process_forward,
-            FlowMode.DROP:     self._process_drop,
-            FlowMode.THROTTLE: self._process_throttle,
-            FlowMode.INSPECT:  self._process_inspect,
-        }
-
-        handler_fn = dispatch.get(self.mode)
+        handler_fn = self._dispatch.get(self.mode)
         if handler_fn:
             try:
                 handler_fn(pkt)

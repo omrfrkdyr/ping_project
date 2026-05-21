@@ -47,6 +47,7 @@ import time
 import threading
 import subprocess
 import socket
+import logging
 from typing import Optional
 
 try:
@@ -63,19 +64,22 @@ except ImportError:
 
 from modules.utils import (
     cprint, Colors, separator, print_table,
-    validate_ip, timestamp, get_local_ip
+    validate_ip, timestamp, get_local_ip, strip_zone
 )
+from config import cfg
+
+logger = logging.getLogger("antigravity.ndp")
 
 
-# ─── Sabitler ─────────────────────────────────────────────────────────────────
+# ─── Sabitler (config'den) ────────────────────────────────────────────────────
 
-NDP_INTERVAL    = 1.5   # Sahte NA gönderme aralığı (saniye)
-NDP_RESTORE_CNT = 5     # Onarma sırasında gönderilecek gerçek NA sayısı
+NDP_INTERVAL    = cfg.NDP_INTERVAL
+NDP_RESTORE_CNT = cfg.NDP_RESTORE_CNT
 
 # Özel IPv6 multicast adresleri
-IPV6_ALL_NODES   = "ff02::1"   # Tüm bağlantı-yerel düğümler
-IPV6_ALL_ROUTERS = "ff02::2"   # Tüm bağlantı-yerel yönlendiriciler
-ETH_IPV6_MCAST   = "33:33:00:00:00:01"  # IPv6 multicast Ethernet adresi
+IPV6_ALL_NODES   = cfg.IPV6_ALL_NODES
+IPV6_ALL_ROUTERS = cfg.IPV6_ALL_ROUTERS
+ETH_IPV6_MCAST   = cfg.ETH_IPV6_MCAST
 
 
 # ─── Yardımcı Fonksiyonlar ────────────────────────────────────────────────────
@@ -85,10 +89,11 @@ def _strip_zone(ipv6: str) -> str:
     IPv6 adresinden '%iface' zone ID'yi temizler.
     Örn: 'fe80::1%en0' → 'fe80::1'
     Scapy ve socket kütüphaneleri zone ID'yi kabul etmez.
+
+    Not: Bu fonksiyon geriye dönük uyumluluk için korunmuştur.
+    Yeni kodda modules.utils.strip_zone() kullanın.
     """
-    if ipv6 and '%' in ipv6:
-        return ipv6.split('%')[0]
-    return ipv6 or ""
+    return strip_zone(ipv6)
 
 def get_local_ipv6(iface: str) -> Optional[str]:
     """
@@ -442,6 +447,7 @@ class NDPSpoofer:
         self.local_ipv6   = None
         self.active       = False
         self.packet_count = 0
+        self._pkt_lock    = threading.Lock()  # packet_count thread safety
         self._stop_event  = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
@@ -547,7 +553,8 @@ class NDPSpoofer:
 
                 sendp(pkt_to_target, iface=self.iface, verbose=False)
                 sendp(pkt_to_router, iface=self.iface, verbose=False)
-                self.packet_count += 2
+                with self._pkt_lock:
+                    self.packet_count += 2
 
             except OSError as e:
                 cprint(f"  [!] Paket gönderme hatası: {e}", Colors.RED)
@@ -720,7 +727,8 @@ class NDPSpoofer:
 
         # Thread başlat
         self._stop_event.clear()
-        self.packet_count = 0
+        with self._pkt_lock:
+            self.packet_count = 0
         self._thread = threading.Thread(
             target=self._spoof_loop,
             name="NDP-Spoof-Thread",
@@ -756,9 +764,10 @@ class NDPSpoofer:
         if restore:
             self._restore_neighbor_cache()
 
-        total = self.packet_count
+        with self._pkt_lock:
+            total = self.packet_count
+            self.packet_count = 0
         self.active = False
-        self.packet_count = 0
 
         cprint(f"  [✓] NDP Spoofing durduruldu. Toplam {total} sahte NA paketi gönderildi.", Colors.GREEN)
         return total

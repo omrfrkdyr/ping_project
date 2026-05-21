@@ -6,10 +6,12 @@ Ortak yardımcı fonksiyonlar: renk çıktısı, yetki kontrolü, logo.
 
 import os
 import sys
+import socket
 import platform
-import ctypes
+import logging
 import ipaddress
 from datetime import datetime
+from typing import Optional
 
 
 # ─── ANSI Renk Kodları ────────────────────────────────────────────────────────
@@ -34,7 +36,7 @@ class Colors:
     BG_YELLOW = "\033[43m"
 
 
-C = Colors()
+
 
 
 def cprint(text: str, color: str = Colors.WHITE, bold: bool = False, end: str = "\n"):
@@ -79,6 +81,7 @@ def check_root() -> bool:
     system = platform.system()
     try:
         if system == "Windows":
+            import ctypes
             has_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
         else:
             has_admin = (os.geteuid() == 0)
@@ -128,8 +131,39 @@ def validate_ip(ip: str) -> bool:
     try:
         ipaddress.IPv4Address(ip)
         return True
-    except ipaddress.AddressValueError:
+    except (ipaddress.AddressValueError, ValueError):
         return False
+
+
+def validate_ipv6(ip: str) -> bool:
+    """
+    Verilen IP adresinin geçerli bir IPv6 adresi olup olmadığını kontrol eder.
+
+    Args:
+        ip: Kontrol edilecek IPv6 adresi string'i.
+
+    Returns:
+        bool: Geçerliyse True.
+    """
+    try:
+        ipaddress.IPv6Address(ip)
+        return True
+    except (ipaddress.AddressValueError, ValueError):
+        return False
+
+
+def validate_mac(mac: str) -> bool:
+    """
+    Verilen string'in geçerli bir MAC adresi formatında olup olmadığını kontrol eder.
+
+    Args:
+        mac: "aa:bb:cc:dd:ee:ff" formatında kontrol edilecek MAC adresi.
+
+    Returns:
+        bool: Geçerliyse True.
+    """
+    import re
+    return bool(re.match(r'^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$', mac))
 
 
 def validate_network(network: str) -> bool:
@@ -156,7 +190,6 @@ def get_local_ip() -> str:
     Returns:
         str: Yerel IP adresi veya '127.0.0.1'.
     """
-    import socket
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("8.8.8.8", 80))
@@ -234,3 +267,57 @@ def print_table(headers: list, rows: list, colors: list = None):
     # Alt çizgi
     bottom = "  └" + "┴".join("─" * (w + 2) for w in col_widths) + "┘"
     cprint(bottom, Colors.GRAY)
+
+
+# ─── IPv6 Yardımcıları ────────────────────────────────────────────────────────
+
+def strip_zone(ipv6: str) -> str:
+    """
+    IPv6 adresinden '%iface' zone ID'yi temizler.
+    Örn: 'fe80::1%en0' → 'fe80::1'
+    Scapy ve socket kütüphaneleri zone ID'yi kabul etmez.
+
+    Args:
+        ipv6: Temizlenecek IPv6 adresi string'i.
+
+    Returns:
+        str: Zone ID olmadan IPv6 adresi.
+    """
+    if ipv6 and '%' in ipv6:
+        return ipv6.split('%')[0]
+    return ipv6 or ""
+
+
+# ─── Logging Altyapısı ────────────────────────────────────────────────────────
+
+def setup_logging(level: str = "INFO", log_file: str = "") -> logging.Logger:
+    """
+    Proje genelinde kullanılacak logging altyapısını kurar.
+
+    Args:
+        level:    Log seviyesi (DEBUG, INFO, WARNING, ERROR).
+        log_file: Log dosyası yolu. Boşsa sadece console'a yazar.
+
+    Returns:
+        logging.Logger: Kök logger.
+    """
+    root = logging.getLogger("antigravity")
+    root.setLevel(getattr(logging, level.upper(), logging.INFO))
+
+    # Console handler
+    if not root.handlers:
+        fmt = logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%H:%M:%S"
+        )
+        ch = logging.StreamHandler()
+        ch.setFormatter(fmt)
+        root.addHandler(ch)
+
+        # Dosya handler (opsiyonel)
+        if log_file:
+            fh = logging.FileHandler(log_file, encoding="utf-8")
+            fh.setFormatter(fmt)
+            root.addHandler(fh)
+
+    return root

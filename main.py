@@ -346,7 +346,7 @@ def main():
             except Exception as e:
                 cprint(f"\n  [✗] HATA: {type(e).__name__}: {e}", Colors.RED, bold=True)
         else:
-            cprint("  [!] Geçersiz seçim. 0-6 arasında bir değer girin.", Colors.YELLOW)
+            cprint("  [!] Geçersiz seçim. 0-9 veya M girin.", Colors.YELLOW)
 
     # Çıkış (atexit tetiklenir)
     sys.exit(0)
