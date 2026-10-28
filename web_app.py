@@ -69,7 +69,7 @@ app.config["JSON_SORT_KEYS"] = False
 def scapy_iface():
     try:
         from scapy.all import conf as sc
-        return sc.iface
+        return str(sc.iface)
     except Exception:
         return "en0"
 
@@ -297,6 +297,30 @@ def _resolve_names_bg(ips: list):
         _passive_sniffer.start()
 
 
+@app.route("/api/refresh-names", methods=["POST"])
+def api_refresh_names():
+    """İsim çözümleme ve pasif sniffer'ı yeniden başlatır."""
+    ips = state.device_ips()
+    if not ips:
+        return jsonify({"ok": False, "error": "Önce ağı tarayın."}), 400
+
+    state.log(f"[REFRESH] İsim yenileme başlatılıyor ({len(ips)} cihaz)...", "info")
+
+    # Pasif sniffer'ı yeniden başlat
+    if _passive_sniffer:
+        _passive_sniffer.stop()
+        _passive_sniffer.start()
+
+    # Arka planda DNS çözümleme
+    threading.Thread(
+        target=_resolve_names_bg,
+        args=(ips,),
+        daemon=True
+    ).start()
+
+    return jsonify({"ok": True, "count": len(ips)})
+
+
 # ── Tarama ────────────────────────────────────────────────────────────────────
 
 @app.route("/api/scan", methods=["POST"])
@@ -313,13 +337,23 @@ def api_scan():
     state.scan_progress = 8
 
     def _scan():
-        state.log(f"[SCAN] ARP taranıyor: {network}  timeout={timeout}s", "info")
+        # Ağ büyüklüğünü hesapla ve logla
+        try:
+            import ipaddress as _ipa
+            _net = _ipa.IPv4Network(network, strict=False)
+            _host_count = _net.num_addresses - 2
+            state.log(f"[SCAN] ARP taranıyor: {network} ({_host_count} host)  timeout={timeout}s", "info")
+        except Exception:
+            state.log(f"[SCAN] ARP taranıyor: {network}  timeout={timeout}s", "info")
         try:
             state.scan_progress = 20
             nd    = NodeDiscovery()
             state.scan_progress = 30
             hosts = nd.scan(network=network, timeout=timeout,
                             resolve_hostnames=False, verbose=False)
+            # nd.scan içinde ping sweep fallback zaten çalışır
+            if len(hosts) == 0:
+                state.log("[SCAN] ARP sonuç vermedi, ping sweep deneniyor...", "warn")
             state.scan_progress = 88
             state.clear_devices()
             ips_found = []
@@ -565,6 +599,7 @@ def api_status():
         "local_ip":     local_ip,
         "local_v6":     local_v6,
         "gateway_ip":   gw_ip,
+        "network_range": guess_network_range() if MODULES_OK else "192.168.1.0/24",
         "scanning":     state.scanning,
         "device_count": len(state.devices),
         "isolated":     active_ips,

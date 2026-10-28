@@ -126,7 +126,7 @@ class PacketFlowController:
         self.throttle_kbps = 512.0          # Varsayılan: 512 kbps
         self.stats = FlowStats()
         self.active = False
-        self.iface = iface or (conf.iface if SCAPY_AVAILABLE else "eth0")
+        self.iface = iface or (str(conf.iface) if SCAPY_AVAILABLE else "eth0")
         self._stop_event  = threading.Event()
         self._sniff_thread: Optional[threading.Thread] = None
         self._filter: Optional[str] = None  # BPF filtresi

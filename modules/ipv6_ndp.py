@@ -253,7 +253,7 @@ class IPv6Discovery:
     """
 
     def __init__(self, iface: Optional[str] = None):
-        self.iface = iface or (conf.iface if SCAPY_AVAILABLE else "en0")
+        self.iface = iface or (str(conf.iface) if SCAPY_AVAILABLE else "en0")
         self.hosts: dict[str, dict] = {}   # {ipv6: {mac, first_seen}}
 
     def scan_multicast(self, timeout: float = 3.0) -> dict:
@@ -438,7 +438,7 @@ class NDPSpoofer:
     """
 
     def __init__(self, iface: Optional[str] = None):
-        self.iface        = iface or (conf.iface if SCAPY_AVAILABLE else "en0")
+        self.iface        = iface or (str(conf.iface) if SCAPY_AVAILABLE else "en0")
         self.target_ipv6  = None
         self.target_mac   = None
         self.router_ipv6  = None

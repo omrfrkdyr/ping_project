@@ -537,7 +537,11 @@ function _patchDeviceCards(devs) {
 
 function startNamePolling() {
   if (_patchTimer) clearInterval(_patchTimer);
-  _patchStopAt = Date.now() + 3 * 60 * 1000;
+  _patchStopAt = Date.now() + 10 * 60 * 1000;  // 10 dakika
+  // Yenile butonunu gizle (polling aktif)
+  const refreshBtn = document.getElementById('refresh-names-btn');
+  if (refreshBtn) refreshBtn.style.display = 'none';
+
   _patchTimer  = setInterval(async () => {
     try {
       const r    = await fetch('/api/devices');
@@ -546,9 +550,38 @@ function startNamePolling() {
       if (Date.now() > _patchStopAt) {
         clearInterval(_patchTimer);
         _patchTimer = null;
+        // Yenile butonunu göster
+        if (refreshBtn) refreshBtn.style.display = 'inline-flex';
+        showToast('İsim arama tamamlandı. Yenilemek için butona tıklayın.', 'info');
       }
     } catch (_) {}
-  }, 2000);
+  }, 3000);  // 3 saniye aralık
+}
+
+async function refreshNames() {
+  const btn = document.getElementById('refresh-names-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '⟳ Yenileniyor...';
+  }
+
+  try {
+    const r = await fetch('/api/refresh-names', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      showToast(`${d.count} cihaz için isim arama yeniden başlatıldı.`, 'success');
+      startNamePolling();
+    } else {
+      showToast(d.error || 'İsim yenileme başarısız.', 'error');
+    }
+  } catch (e) {
+    showToast('Sunucuya bağlanılamadı.', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '⟳ İsimleri Yenile';
+    }
+  }
 }
 
 // ─── Background Canvas ────────────────────────────────────────────────
@@ -823,13 +856,19 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Network input'a varsayılan değer
   fetch('/api/status').then(r => r.json()).then(d => {
+    const netRange = d.network_range || null;
     const ip = d.local_ip || '192.168.1.67';
-    const parts = ip.split('.');
-    if (parts.length === 4) {
-      document.getElementById('network-input').placeholder =
-        `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
-      document.getElementById('network-input').value =
-        `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+    if (netRange) {
+      document.getElementById('network-input').placeholder = netRange;
+      document.getElementById('network-input').value = netRange;
+    } else {
+      const parts = ip.split('.');
+      if (parts.length === 4) {
+        document.getElementById('network-input').placeholder =
+          `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+        document.getElementById('network-input').value =
+          `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+      }
     }
     // Expert gateway otomatik doldur
     const gwEl = document.getElementById('ex-arp-gw');

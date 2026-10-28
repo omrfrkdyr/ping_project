@@ -83,7 +83,7 @@ class TrafficRedirector:
         self.target_mac:  Optional[str] = None
         self.gateway_mac: Optional[str] = None
         self.attacker_mac: Optional[str] = None
-        self.iface = iface or (conf.iface if SCAPY_AVAILABLE else "eth0")
+        self.iface = iface or (str(conf.iface) if SCAPY_AVAILABLE else "eth0")
         self.active = False
         self.packet_count = 0
         self._pkt_lock = threading.Lock()  # packet_count thread safety

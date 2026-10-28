@@ -71,7 +71,7 @@ def _get_default_iface() -> str:
     """Scapy varsayılan ağ arayüznü döndürür."""
     try:
         from scapy.all import conf as scapy_conf
-        return scapy_conf.iface
+        return str(scapy_conf.iface)
     except Exception:
         return "en0"
 

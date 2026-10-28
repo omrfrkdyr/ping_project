@@ -198,16 +198,85 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
-def guess_network_range() -> str:
+def _detect_prefix_length(local_ip: str) -> int:
     """
-    Yerel IP'ye göre /24 ağ aralığını tahmin eder.
+    İşletim sisteminden gerçek subnet prefix uzunluğunu algılar.
+
+    Önce ifconfig (macOS/BSD), sonra ip addr (Linux) çıktısını parse eder.
+    Başarısız olursa /24 varsayılanına döner.
+
+    Args:
+        local_ip: Yerel IP adresi (doğru arayüzü bulmak için).
 
     Returns:
-        str: Örn. "192.168.1.0/24"
+        int: Prefix uzunluğu (örn. 22, 24).
+    """
+    import subprocess
+    import re
+
+    # ── macOS / BSD: ifconfig ──────────────────────────────────────────
+    try:
+        result = subprocess.run(
+            ["ifconfig"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            # ifconfig çıktısında IP'mizi bulup aynı satırdaki netmask'i al
+            for line in result.stdout.splitlines():
+                if local_ip in line:
+                    # macOS formatı: "inet 192.168.1.5 netmask 0xffffff00 ..."
+                    hex_match = re.search(r'netmask\s+(0x[0-9a-fA-F]+)', line)
+                    if hex_match:
+                        mask_int = int(hex_match.group(1), 16)
+                        return bin(mask_int).count('1')
+                    # Linux formatı: "inet 192.168.1.5 netmask 255.255.255.0 ..."
+                    dot_match = re.search(r'netmask\s+(\d+\.\d+\.\d+\.\d+)', line)
+                    if dot_match:
+                        octets = dot_match.group(1).split('.')
+                        mask_int = sum(int(o) << (8 * (3 - i)) for i, o in enumerate(octets))
+                        return bin(mask_int).count('1')
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+
+    # ── Linux: ip addr ─────────────────────────────────────────────────
+    try:
+        result = subprocess.run(
+            ["ip", "-o", "-4", "addr", "show"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if local_ip in line:
+                    # Formatı: "2: eth0  inet 192.168.1.5/24 ..."
+                    cidr_match = re.search(rf'{re.escape(local_ip)}/(\d+)', line)
+                    if cidr_match:
+                        return int(cidr_match.group(1))
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+
+    # ── Fallback ───────────────────────────────────────────────────────
+    return 24
+
+
+def guess_network_range() -> str:
+    """
+    Yerel IP ve gerçek subnet maskesine göre ağ aralığını tespit eder.
+
+    İşletim sisteminden gerçek prefix uzunluğunu okuyarak doğru CIDR
+    aralığını döndürür. Algılama başarısız olursa /24'e düşer.
+
+    Returns:
+        str: Örn. "139.179.232.0/22" veya "192.168.1.0/24"
     """
     local_ip = get_local_ip()
-    parts = local_ip.split(".")
-    return f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+    prefix = _detect_prefix_length(local_ip)
+    try:
+        network = ipaddress.IPv4Network(f"{local_ip}/{prefix}", strict=False)
+        return str(network)
+    except (ipaddress.AddressValueError, ValueError):
+        # Son çare: eski /24 davranışı
+        parts = local_ip.split(".")
+        return f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
 
 
 def timestamp() -> str:
