@@ -202,7 +202,7 @@ class PassiveSnifferEngine:
 
         if self._vendor_fn:
             mac = devices[ip].get('mac', '')
-            vendor, dtype = self._vendor_fn(mac, hostname)
+            vendor, dtype = self._vendor_fn(mac, clean or hostname)
             update['vendor'] = vendor
             update['type'] = dtype
 

@@ -76,10 +76,35 @@ class TestGetVendor:
         assert vendor == "Android"
         assert dtype == "phone"
 
+    def test_lg_webos_tv(self):
+        vendor, dtype = get_vendor("02:00:00:00:00:00", hostname="lgwebOS tv")
+        assert vendor == "LG TV"
+        assert dtype == "tv"
+
+    def test_lg_webostv_mdns(self):
+        vendor, dtype = get_vendor("ff:ff:ff:ff:ff:ff", hostname="LGwebOSTV.local")
+        assert vendor == "LG TV"
+        assert dtype == "tv"
+
+    def test_siemens_dryer(self):
+        vendor, dtype = get_vendor("ff:ff:ff:ff:ff:ff", hostname="siemens dryer")
+        assert vendor == "Siemens Dryer"
+        assert dtype == "iot"
+
+    def test_siemens_dryer_hyphen(self):
+        vendor, dtype = get_vendor("ff:ff:ff:ff:ff:ff", hostname="Siemens-Dryer.local")
+        assert vendor == "Siemens Dryer"
+        assert dtype == "iot"
+
+    def test_bsh_siemens_oui(self):
+        vendor, dtype = get_vendor("94:27:70:11:22:33")
+        assert vendor == "Siemens / Bosch"
+        assert dtype == "iot"
+
 
 class TestHostnameHints:
     def test_all_hints_have_tuple(self):
         for kw, (vendor, dtype) in HOSTNAME_HINTS.items():
             assert isinstance(kw, str)
             assert isinstance(vendor, str)
-            assert dtype in ("phone", "laptop", "tv")
+            assert dtype in ("phone", "laptop", "tv", "iot", "router")

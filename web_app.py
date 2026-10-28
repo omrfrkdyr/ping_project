@@ -228,7 +228,7 @@ def _resolve_names_bg(ips: list):
                 if not clean:
                     return
                 mac = dev['mac']
-                vendor, dtype = get_vendor(mac, raw)
+                vendor, dtype = get_vendor(mac, clean or raw)
                 state.update_device(ip, {
                     'hostname':      raw,
                     'friendly_name': clean,

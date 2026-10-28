@@ -67,16 +67,36 @@ OUI_TABLE: dict[str, Tuple[str, str]] = {
     "6c:b7:f4": ("Huawei",    "phone"),  "00:9a:cd": ("Huawei",    "phone"),
 
     # ── Smart TV / LG ─────────────────────────────────────────────
-    "94:27:70": ("Smart TV",  "tv"),     "8c:79:67": ("Smart TV",  "tv"),
     "a8:23:fe": ("LG TV",     "tv"),     "c4:36:6c": ("LG TV",     "tv"),
     "48:59:29": ("LG TV",     "tv"),     "cc:2d:8c": ("LG TV",     "tv"),
     "b8:ad:3e": ("LG TV",     "tv"),     "78:5d:c8": ("LG TV",     "tv"),
+    "00:1c:62": ("LG TV",     "tv"),     "00:1e:75": ("LG TV",     "tv"),
+    "10:f9:ee": ("LG TV",     "tv"),     "20:3d:b2": ("LG TV",     "tv"),
+    "34:fc:ef": ("LG TV",     "tv"),     "58:a2:b5": ("LG TV",     "tv"),
+    "64:99:5d": ("LG TV",     "tv"),     "70:05:14": ("LG TV",     "tv"),
+    "7c:1c:f1": ("LG TV",     "tv"),     "88:36:6c": ("LG TV",     "tv"),
+    "a8:16:b2": ("LG TV",     "tv"),     "b4:e6:2d": ("LG TV",     "tv"),
+    "c8:08:e9": ("LG TV",     "tv"),     "e8:5b:5b": ("LG TV",     "tv"),
+    "00:26:e2": ("LG TV",     "tv"),     "50:56:bf": ("LG TV",     "tv"),
+    "68:94:23": ("LG TV",     "tv"),     "dc:0b:34": ("LG TV",     "tv"),
+    "e4:b3:18": ("LG TV",     "tv"),     "ec:9b:f3": ("LG TV",     "tv"),
+    "08:d4:6a": ("LG TV",     "tv"),
     "ac:9b:0a": ("Sony TV",   "tv"),     "04:5d:4b": ("Sony TV",   "tv"),
     "f4:f5:24": ("Sony TV",   "tv"),     "7c:c3:a1": ("Sony TV",   "tv"),
     "90:e7:c4": ("Hisense",   "tv"),     "f4:43:02": ("Hisense",   "tv"),
     "00:17:88": ("Philips",   "tv"),     "78:84:e1": ("Philips",   "tv"),
 
+    # ── Ev Aletleri (Siemens / Bosch / BSH) ─────────────────────────
+    "94:27:70": ("Siemens / Bosch", "iot"), "68:a4:0e": ("Siemens / Bosch", "iot"),
+    "38:b4:d3": ("Siemens / Bosch", "iot"), "c8:d7:78": ("Siemens / Bosch", "iot"),
+    "74:5d:43": ("Siemens / Bosch", "iot"), "e4:67:a6": ("Siemens / Bosch", "iot"),
+    "40:0a:e7": ("Siemens / Bosch", "iot"), "00:21:4f": ("BSH Hausgeräte",  "iot"),
+    "00:1c:06": ("Siemens",         "iot"), "00:0e:8c": ("Siemens",         "iot"),
+    "00:1f:f8": ("Siemens",         "iot"), "18:87:96": ("Siemens",         "iot"),
+    "80:34:28": ("Siemens",         "iot"),
+
     # ── IoT / Diğer ───────────────────────────────────────────────
+    "8c:79:67": ("ZTE",       "router"),
     "b4:75:0e": ("IoT",       "iot"),    "18:fe:34": ("IoT",       "iot"),
     "50:02:91": ("IoT",       "iot"),    "a0:20:a6": ("IoT",       "iot"),
     "ac:cf:23": ("IoT",       "iot"),
@@ -90,21 +110,59 @@ OUI_TABLE: dict[str, Tuple[str, str]] = {
 # ─── Hostname İpuçları ─────────────────────────────────────────────────────────
 
 HOSTNAME_HINTS: dict[str, Tuple[str, str]] = {
-    "iphone":  ("iPhone",   "phone"),
-    "ipad":    ("iPad",     "phone"),
-    "macbook": ("MacBook",  "laptop"),
-    "mac-":    ("MacBook",  "laptop"),
-    "android": ("Android",  "phone"),
-    "samsung": ("Samsung",  "phone"),
-    "xiaomi":  ("Xiaomi",   "phone"),
-    "huawei":  ("Huawei",   "phone"),
-    "appletv": ("Apple TV", "tv"),
-    "firetv":  ("Amazon",   "tv"),
-    "roku":    ("Roku TV",  "tv"),
-    "xbox":    ("Xbox",     "laptop"),
-    "playstation": ("PlayStation", "laptop"),
-    "ps4":     ("PlayStation", "laptop"),
-    "ps5":     ("PlayStation", "laptop"),
+    # ── LG & Smart TV ──────────────────────────────────────────────
+    "lgwebostv":    ("LG TV",          "tv"),
+    "webostv":      ("LG TV",          "tv"),
+    "webos":        ("LG TV",          "tv"),
+    "lg-tv":        ("LG TV",          "tv"),
+    "lg tv":        ("LG TV",          "tv"),
+    "lgtv":         ("LG TV",          "tv"),
+    "[lg]":         ("LG TV",          "tv"),
+    "smarttv":      ("Smart TV",       "tv"),
+    "smart-tv":     ("Smart TV",       "tv"),
+    "smart tv":     ("Smart TV",       "tv"),
+    "appletv":      ("Apple TV",       "tv"),
+    "apple tv":     ("Apple TV",       "tv"),
+    "firetv":       ("Amazon Fire TV", "tv"),
+    "firestick":    ("Amazon Fire TV", "tv"),
+    "roku":         ("Roku TV",        "tv"),
+    "bravia":       ("Sony Bravia",    "tv"),
+    "tizen":        ("Samsung TV",     "tv"),
+    "chromecast":   ("Chromecast",     "tv"),
+    "mibox":        ("Mi Box",         "tv"),
+    "shield":       ("Nvidia Shield",  "tv"),
+
+    # ── Ev Aletleri / IoT (Siemens, Bosch vb.) ──────────────────────
+    "siemens dryer": ("Siemens Dryer", "iot"),
+    "siemens-dryer": ("Siemens Dryer", "iot"),
+    "siemens_dryer": ("Siemens Dryer", "iot"),
+    "dryer":        ("Siemens Dryer",  "iot"),
+    "kurutma":      ("Kurutma Makinesi", "iot"),
+    "washer":       ("Çamaşır Makinesi", "iot"),
+    "camasir":      ("Çamaşır Makinesi", "iot"),
+    "dishwasher":   ("Bulaşık Makinesi", "iot"),
+    "bulasik":      ("Bulaşık Makinesi", "iot"),
+    "siemens":      ("Siemens",        "iot"),
+    "bosch":        ("Bosch",          "iot"),
+    "homeconnect":  ("Home Connect",   "iot"),
+    "home-connect": ("Home Connect",   "iot"),
+    "bsh":          ("BSH Appliance",  "iot"),
+
+    # ── Apple (iPhone/iPad/MacBook) ────────────────────────────────
+    "iphone":       ("iPhone",         "phone"),
+    "ipad":         ("iPad",           "phone"),
+    "macbook":      ("MacBook",        "laptop"),
+    "mac-":         ("MacBook",        "laptop"),
+
+    # ── Diğer Telefonlar / Cihazlar ────────────────────────────────
+    "android":      ("Android",        "phone"),
+    "samsung":      ("Samsung",        "phone"),
+    "xiaomi":       ("Xiaomi",         "phone"),
+    "huawei":       ("Huawei",         "phone"),
+    "xbox":         ("Xbox",           "laptop"),
+    "playstation":  ("PlayStation",    "laptop"),
+    "ps4":          ("PlayStation",    "laptop"),
+    "ps5":          ("PlayStation",    "laptop"),
 }
 
 
@@ -144,8 +202,15 @@ def get_vendor(mac: str, hostname: str = "") -> Tuple[str, str]:
     """
     # 1. Hostname ipucu (en güvenilir)
     hn = (hostname or "").lower()
+    hn_normalized = hn.replace("-", " ").replace("_", " ")
+    hn_compact = hn.replace(" ", "").replace("-", "").replace("_", "")
+
     for kw, (vendor, dtype) in HOSTNAME_HINTS.items():
-        if kw in hn:
+        kw_lower = kw.lower()
+        kw_compact = kw_lower.replace(" ", "").replace("-", "").replace("_", "")
+        if (kw_lower in hn or
+            kw_lower in hn_normalized or
+            (kw_compact and kw_compact in hn_compact)):
             return vendor, dtype
 
     # 2. OUI tablosu

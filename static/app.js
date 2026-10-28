@@ -248,9 +248,10 @@ function buildDeviceCard(dev, index) {
                </button>`;
   }
 
-  // Monitör butonu (gateway değilse)
+  // Monitör butonu (gateway değilse, asla 'Bilinmiyor' etiketi kullanma)
+  const cardLabel = dev.friendly_name || (dev.vendor && dev.vendor !== 'Bilinmiyor' ? dev.vendor : '') || dev.ip;
   const monitorBtn = !isGateway
-    ? `<button class="monitor-btn" id="monbtn-${dev.ip.replace(/\./g,'-')}" onclick="startMonitor('${dev.ip}','${escHtml(dev.friendly_name || dev.vendor || dev.ip)}')" aria-label="${escHtml(dev.ip)} cihazını izle">👁 Monitör Et</button>`
+    ? `<button class="monitor-btn" id="monbtn-${dev.ip.replace(/\./g,'-')}" onclick="startMonitor('${dev.ip}','${escHtml(cardLabel)}')" aria-label="${escHtml(cardLabel)} cihazını izle">👁 Monitör Et</button>`
     : '';
 
   // ── Katman 1: Cihaz Adı (friendly_name > vendor > type) ──
@@ -481,10 +482,14 @@ function _patchDeviceCards(devs) {
       if (pktEl) pktEl.textContent = `● ${dev.pkt_count || 0} paket gönderildi`;
     }
 
-    // ── İsim değişti mi? ────────────────────────────────────────────
-    const prevName = _knownNames[dev.ip] || '';
-    const newName  = dev.friendly_name || '';
-    if (newName === prevName) return;   // hiç değişmemiş, atla
+    // ── İsim veya vendor değişti mi? ──────────────────────────────
+    const prevName   = _knownNames[dev.ip] || '';
+    const newName    = dev.friendly_name || '';
+    const badgeEl    = card.querySelector('.device-type-badge');
+    const badgeText  = badgeEl ? badgeEl.textContent.trim() : '';
+    const vendorDiff = dev.vendor && dev.vendor !== badgeText;
+
+    if (newName === prevName && !vendorDiff) return;
     _knownNames[dev.ip] = newName;
 
     // ── Badge (vendor etiketi) ───────────────────────────────────────
@@ -544,6 +549,21 @@ function _patchDeviceCards(devs) {
         ownerEl.innerHTML = ownerHtml;
         ownerEl.classList.add('name-reveal');
         setTimeout(() => ownerEl.classList.remove('name-reveal'), 800);
+      }
+    }
+
+    // ── Monitör butonunu ve açık paneli güncelle ───────────────────
+    const monBtn = card.querySelector('.monitor-btn');
+    const bestName = dev.friendly_name || (dev.vendor && dev.vendor !== 'Bilinmiyor' ? dev.vendor : '') || dev.ip;
+    if (monBtn) {
+      monBtn.setAttribute('onclick', `startMonitor('${dev.ip}','${escHtml(bestName)}')`);
+      monBtn.setAttribute('aria-label', `${escHtml(bestName)} cihazını izle`);
+    }
+
+    if (_monitorIp === dev.ip) {
+      const titleEl = document.getElementById('monitor-title');
+      if (titleEl && bestName && bestName !== 'Bilinmiyor') {
+        titleEl.textContent = bestName;
       }
     }
   });
@@ -665,6 +685,39 @@ let _monDnsCount   = 0;
 let _monHttpsCount = 0;
 let _monTotal      = 0;
 
+function getBestDeviceLabel(ip, fallbackLabel) {
+  // 1. Parametre olarak gelen ve 'Bilinmiyor' olmayan isim
+  if (fallbackLabel && fallbackLabel !== 'Bilinmiyor' && fallbackLabel !== ip) {
+    return fallbackLabel;
+  }
+  // 2. Hafızadaki en güncel friendly_name
+  if (_knownNames[ip] && _knownNames[ip] !== 'Bilinmiyor') {
+    return _knownNames[ip];
+  }
+  // 3. DOM kartındaki güncel etiketler
+  const card = document.getElementById('card-' + ip.replace(/\./g, '-'));
+  if (card) {
+    const nameEl = card.querySelector('.device-name-label');
+    if (nameEl && nameEl.textContent.trim() && nameEl.textContent.trim() !== 'Bilinmiyor') {
+      return nameEl.textContent.trim();
+    }
+    const ownerEl = card.querySelector('.device-owner-name');
+    if (ownerEl && ownerEl.textContent.trim()) {
+      return ownerEl.textContent.replace('👤', '').trim();
+    }
+    const badgeEl = card.querySelector('.device-type-badge');
+    if (badgeEl && badgeEl.textContent.trim() && badgeEl.textContent.trim() !== 'Bilinmiyor') {
+      return badgeEl.textContent.trim();
+    }
+  }
+  // 4. Eğer fallbackLabel en azından boş veya Bilinmiyor değilse
+  if (fallbackLabel && fallbackLabel !== 'Bilinmiyor') {
+    return fallbackLabel;
+  }
+  // 5. Son çare IP adresi
+  return ip;
+}
+
 async function startMonitor(ip, label) {
   // Zaten açıksa kapat
   if (_monitorIp && _monitorIp !== ip) {
@@ -676,8 +729,9 @@ async function startMonitor(ip, label) {
   _monDnsCount = _monHttpsCount = _monTotal = 0;
   _updateMonStats();
 
-  // Panel başlığını güncelle
-  document.getElementById('monitor-title').textContent    = label || ip;
+  // Panel başlığını en güncel cihaz adıyla belirle (asla 'Bilinmiyor' göstermez)
+  const displayTitle = getBestDeviceLabel(ip, label);
+  document.getElementById('monitor-title').textContent    = displayTitle;
   document.getElementById('monitor-subtitle').textContent = ip;
   document.getElementById('monitor-empty').style.display  = 'flex';
   document.getElementById('mon-live-dot').className       = 'monitor-live-dot blink';
