@@ -91,16 +91,18 @@ Tarayıcıda `http://localhost:8080` adresine gidin.
 ## 📋 CLI Menü Yapısı
 
 ```
-[1] Ağ Tarama & Cihaz Keşfi        — ARP ile yerel ağ tarama
-[2] Trafik Yönlendirme (ARP Spoof)  — ARP cache poisoning
-[3] Paket Akış Kontrolü             — Forward/Drop/Throttle/Inspect
-[4] Keşif Sonuçları                  — Taranan cihaz listesi
-[5] Gelişmiş İzolasyon               — Çoklu cihaz ARP+NDP izolasyonu
-[6] IPv6 NDP Keşfi                   — Link-local IPv6 keşfi
-[7] IPv6 NDP Spoofing                — IPv6 neighbor cache poisoning
-[8] MAC Yardımcı Araçları            — MAC→IPv6 çevirici, ping6
-[9] DNS / Website Monitor            — Gerçek zamanlı DNS/SNI izleme
-[M] Tam İzolasyon Modu               — Seçili cihazı ARP+NDP ile izole et
+[1] Node Discovery      (ARP Keşfi)       — ARP ile yerel ağ tarama
+[2] Traffic Redirection (ARP Yönlendirme) — ARP cache poisoning
+[3] Packet Flow Control (Akış Kontrolü)   — Forward/Drop/Throttle/Inspect
+[4] Sistem Durumu                         — Modül durumları ve aktif hedefler
+[5] Yönlendirmeyi Durdur + ARP Onar       — Orijinal ARP cache tablosunu geri yükle
+[6] Akış Kontrolünü Durdur                 — Paket yakalama/manipülasyonu sonlandır
+[7] IPv6 Node Discovery (ICMPv6 Keşfi)    — Link-local IPv6 keşfi
+[8] IPv6 NDP Spoofing   (NA Zehirleme)    — IPv6 neighbor cache poisoning
+[9] IPv6 Durdur + Cache Onar              — Orijinal IPv6 neighbor cache geri yükle
+[W] DNS / Website Monitor (Canlı İzleme)  — Gerçek zamanlı DNS ve TLS SNI izleme
+[I] Tam İzolasyon Modu  (ARP + NDP)       — Seçili cihazın hem IPv4 hem IPv6 erişimini kes
+[M] MAC / IPv6 Yardımcı Araçlar           — MAC→IPv6 çevirici, EUI-64, ping6
 [0] Çıkış
 ```
 

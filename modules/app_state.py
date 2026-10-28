@@ -57,7 +57,10 @@ class AppState:
     def log(self, msg: str, level: str = "info"):
         """Log mesajı gönderir. Tüm SSE client'lara dağıtılır."""
         entry = {"ts": _ts(), "msg": msg, "level": level}
-        logger.info("[%s] %s", level.upper(), msg)
+        try:
+            logger.info("[%s] %s", level.upper(), msg)
+        except Exception:
+            pass
 
         with self._log_clients_lock:
             dead = []
@@ -233,6 +236,8 @@ class AppState:
 
     def cleanup(self):
         """Tüm aktif izolasyonları ve monitörleri onarır."""
+        if not self.has_isolations() and not self._monitors and not (self.flow_ctrl and self.flow_ctrl.active):
+            return
         self.log("Temizlik: tüm izolasyonlar onarılıyor...", "warn")
         for ip in self.isolation_keys():
             iso = self.remove_isolation(ip)

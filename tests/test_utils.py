@@ -16,6 +16,10 @@ from modules.utils import (
     get_local_ip,
     timestamp,
     strip_zone,
+    get_default_iface_name,
+    get_default_gateway_v4,
+    get_default_gateway_v6,
+    get_neighbor_cache_entries,
 )
 
 
@@ -120,3 +124,24 @@ class TestTimestamp:
         assert len(ts) >= 19
         assert "-" in ts
         assert ":" in ts
+
+
+class TestCrossPlatformHelpers:
+    def test_get_default_iface_name(self):
+        iface = get_default_iface_name()
+        assert isinstance(iface, str)
+        assert len(iface) > 0
+
+    def test_get_default_gateway_v4(self):
+        gw_ip, gw_mac = get_default_gateway_v4()
+        assert gw_ip is not None
+        assert validate_ip(gw_ip)
+
+    def test_get_default_gateway_v6(self):
+        gw_v6, _ = get_default_gateway_v6()
+        assert gw_v6 is not None
+        assert validate_ipv6(gw_v6)
+
+    def test_get_neighbor_cache_entries(self):
+        entries = get_neighbor_cache_entries()
+        assert isinstance(entries, list)

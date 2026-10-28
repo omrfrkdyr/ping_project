@@ -56,7 +56,8 @@ if not _preflight_checks():
 
 from modules.utils import (
     cprint, Colors, separator, print_banner,
-    check_root, timestamp, get_local_ip
+    check_root, timestamp, get_local_ip, validate_ip,
+    get_default_iface_name, get_default_gateway_v4, get_default_gateway_v6
 )
 from modules.node_discovery     import NodeDiscovery
 from modules.traffic_redirection import TrafficRedirector
@@ -65,15 +66,12 @@ from modules.ipv6_ndp import (
     IPv6Discovery, NDPSpoofer, mac_helper_menu,
     mac_to_ipv6_link_local, get_local_ipv6
 )
+from modules.dns_monitor import DnsMonitor
 
 
 def _get_default_iface() -> str:
-    """Scapy varsayılan ağ arayüznü döndürür."""
-    try:
-        from scapy.all import conf as scapy_conf
-        return str(scapy_conf.iface)
-    except Exception:
-        return "en0"
+    """Sistem varsayılan ağ arayüzünü döndürür."""
+    return get_default_iface_name()
 
 
 # ─── Global Durum ─────────────────────────────────────────────────────────────
@@ -139,10 +137,12 @@ def _print_main_menu():
     cprint("  ║  [5]  Yönlendirmeyi Durdur + ARP Onar       ║", Colors.YELLOW)
     cprint("  ║  [6]  Akış Kontrolünü Durdur                 ║", Colors.YELLOW)
     cprint("  ╠══════════════════════════════════════════════╣", Colors.CYAN)
-    cprint("  ║  ── IPv6 / iPhone İzolasyon ──               ║", Colors.MAGENTA, bold=True)
+    cprint("  ║  ── IPv6 & İleri İzolasyon ──                ║", Colors.MAGENTA, bold=True)
     cprint("  ║  [7]  IPv6 Node Discovery  (ICMPv6 Keşfi)  ║", Colors.MAGENTA)
     cprint("  ║  [8]  IPv6 NDP Spoofing    (NA Zehirleme)  ║", Colors.MAGENTA)
     cprint("  ║  [9]  IPv6 Durdur + Cache Onar             ║", Colors.YELLOW)
+    cprint("  ║  [W]  DNS / Website Monitor (Canlı İzleme)  ║", Colors.GREEN)
+    cprint("  ║  [I]  Tam İzolasyon Modu   (ARP + NDP)      ║", Colors.RED)
     cprint("  ║  [M]  MAC / IPv6 Yardımcı Araçlar          ║", Colors.CYAN)
     cprint("  ╠══════════════════════════════════════════════╣", Colors.CYAN)
     cprint("  ║  [0]  Çıkış                                  ║", Colors.RED)
@@ -290,6 +290,75 @@ def _action_stop_ndp():
     cprint(f"\n  [✓] {total} sahte NA paketi gönderilmişti.", Colors.GREEN)
 
 
+def _action_dns_monitor():
+    """Menü [W]: Gerçek zamanlı DNS ve TLS SNI izleyici."""
+    import time
+    cprint("\n  ┌─ DNS & TLS SNI WEBSITE MONITOR ────────────────────────┐", Colors.CYAN, bold=True)
+    cprint("  │  Hedef cihazın ziyaret ettiği siteleri canlı izler    │", Colors.CYAN)
+    cprint("  └────────────────────────────────────────────────────────┘\n", Colors.CYAN)
+
+    if not discovered_hosts:
+        cprint("  [!] Önce [1] ile ağ taraması yapmanız önerilir.", Colors.YELLOW)
+
+    cprint("  İzlenecek Hedef IP: ", Colors.WHITE, end="")
+    target_ip = input().strip()
+    if not validate_ip(target_ip):
+        cprint("  [✗] Geçersiz IP adresi!", Colors.RED)
+        return
+
+    cprint(f"\n  [*] {target_ip} için DNS/SNI izleyici başlatılıyor...", Colors.CYAN)
+    cprint("  [*] Durdurmak ve ana menüye dönmek için Ctrl+C basın.\n", Colors.GRAY)
+
+    def on_domain(entry):
+        cprint(f"  [{entry.get('ts')}] ({entry.get('proto')}) {entry.get('domain')}", Colors.GREEN)
+
+    monitor = DnsMonitor(target_ip, on_domain=on_domain)
+    monitor.start()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        monitor.stop()
+        cprint("\n  [✓] Website izleme durduruldu.", Colors.GREEN)
+
+
+def _action_full_isolation():
+    """Menü [I]: Seçili cihazı hem ARP hem NDP ile izole eder."""
+    cprint("\n  ┌─ TAM İZOLASYON MODU (ARP + NDP) ───────────────────────┐", Colors.RED, bold=True)
+    cprint("  │  Seçilen cihazın hem IPv4 hem IPv6 erişimini keser     │", Colors.RED)
+    cprint("  └────────────────────────────────────────────────────────┘\n", Colors.RED)
+
+    cprint("  İzole Edilecek Hedef IPv4: ", Colors.WHITE, end="")
+    target_ip = input().strip()
+    if not validate_ip(target_ip):
+        cprint("  [✗] Geçersiz IP!", Colors.RED)
+        return
+
+    gw_ip, gw_mac = get_default_gateway_v4()
+    cprint(f"  Ağ Geçidi IPv4 [{gw_ip}]: ", Colors.WHITE, end="")
+    user_gw = input().strip()
+    if user_gw:
+        gw_ip = user_gw
+
+    global redirector, ndp_spoofer
+    target_entry = discovered_hosts.get(target_ip)
+    target_mac = target_entry.mac if target_entry else None
+
+    cprint("\n  [*] ARP İzolasyonu başlatılıyor...", Colors.CYAN)
+    redirector = TrafficRedirector(iface=_get_default_iface())
+    redirector.start(target_ip, gw_ip, target_mac=target_mac, gateway_mac=gw_mac, enable_forwarding=False)
+
+    gw_v6, _ = get_default_gateway_v6()
+    cprint("  Hedef IPv6 (Opsiyonel / link-local, boşsa atlar): ", Colors.WHITE, end="")
+    target_v6 = input().strip()
+    if target_v6:
+        ndp_spoofer = NDPSpoofer(iface=_get_default_iface())
+        ndp_spoofer.start(target_v6, gw_v6, target_mac=target_mac)
+
+    cprint(f"\n  [✓] {target_ip} izolasyona alındı. İnternet erişimi kesildi.", Colors.GREEN, bold=True)
+    cprint("  [*] İzolasyonu kaldırmak için menüden [5] ve [9] kullanın.", Colors.YELLOW)
+
+
 # ─── Ana Döngü ────────────────────────────────────────────────────────────────
 
 def main():
@@ -317,6 +386,10 @@ def main():
         "7": _action_ipv6_discovery,
         "8": _action_ndp_spoof,
         "9": _action_stop_ndp,
+        "w": _action_dns_monitor,
+        "W": _action_dns_monitor,
+        "i": _action_full_isolation,
+        "I": _action_full_isolation,
         "m": mac_helper_menu,
         "M": mac_helper_menu,
     }

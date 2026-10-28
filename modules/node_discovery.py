@@ -28,7 +28,8 @@ except ImportError:
 
 from modules.utils import (
     cprint, Colors, separator, print_table,
-    validate_network, guess_network_range, timestamp
+    validate_network, guess_network_range, timestamp,
+    get_neighbor_cache_entries
 )
 
 
@@ -347,26 +348,15 @@ class NodeDiscovery:
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
 
-        # NDP cache: ndp -a (macOS) veya ip -6 neigh (Linux)
+        # NDP cache (Cross-Platform)
         try:
-            result = subprocess.run(
-                ["ndp", "-a"], capture_output=True, text=True, timeout=5
-            )
-            if result.returncode != 0:
-                # Linux fallback
-                result = subprocess.run(
-                    ["ip", "-6", "neigh", "show"],
-                    capture_output=True, text=True, timeout=5
-                )
-            # NDP'den gelen link-local MAC'leri topla
-            for line in result.stdout.splitlines():
-                m = re.search(r'([0-9a-fA-F:]{17})\s+\w+', line)
+            for line in get_neighbor_cache_entries():
+                m = re.search(r'([0-9a-fA-F:]{17})', line)
                 if m:
                     mac = m.group(1).lower()
                     if mac and not mac.startswith("01:00:5e") and mac != "(incomplete)":
-                        # MAC'ten IPv4 eşleşmesi ARP cache'ten gelir
                         pass  # NDP sonuçları IPv6, ARP cache'den IPv4 zaten okundu
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        except Exception:
             pass
 
     # ── Strateji 2: IPv6 Multicast ───────────────────────────────────────────

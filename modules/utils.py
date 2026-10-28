@@ -357,6 +357,173 @@ def strip_zone(ipv6: str) -> str:
     return ipv6 or ""
 
 
+# ─── Cross-Platform Ağ ve Sistem Yardımcıları ─────────────────────────────────
+
+def get_default_iface_name() -> str:
+    """Sistem varsayılan ağ arayüzü adını döndürür (Cross-Platform)."""
+    try:
+        from scapy.all import conf as scapy_conf
+        iface = str(scapy_conf.iface)
+        if iface:
+            return iface
+    except Exception:
+        pass
+
+    import subprocess
+    import re
+    sys_name = platform.system()
+    if sys_name == "Linux":
+        try:
+            r = subprocess.run(["ip", "route", "show", "default"], capture_output=True, text=True, timeout=3)
+            m = re.search(r"dev\s+([^\s]+)", r.stdout)
+            if m:
+                return m.group(1)
+        except Exception:
+            pass
+        return "eth0"
+    elif sys_name == "Darwin":
+        return "en0"
+    return "eth0"
+
+
+def get_default_gateway_v4() -> tuple[Optional[str], Optional[str]]:
+    """Varsayılan IPv4 gateway IP ve MAC adresini döndürür (Cross-Platform)."""
+    import subprocess
+    import re
+    sys_name = platform.system()
+    gw_ip = None
+
+    if sys_name == "Darwin":
+        try:
+            r = subprocess.run(["route", "-n", "get", "default"], capture_output=True, text=True, timeout=3)
+            for line in r.stdout.splitlines():
+                if "gateway:" in line:
+                    gw_ip = line.split(":")[1].strip()
+                    break
+        except Exception:
+            pass
+        if not gw_ip:
+            try:
+                r2 = subprocess.run(["netstat", "-rn", "-f", "inet"], capture_output=True, text=True, timeout=3)
+                for line in r2.stdout.splitlines():
+                    if line.startswith("default"):
+                        gw_ip = line.split()[1]
+                        break
+            except Exception:
+                pass
+    elif sys_name == "Linux":
+        try:
+            r = subprocess.run(["ip", "route", "show", "default"], capture_output=True, text=True, timeout=3)
+            m = re.search(r"default\s+via\s+([0-9.]+)", r.stdout)
+            if m:
+                gw_ip = m.group(1)
+        except Exception:
+            pass
+        if not gw_ip:
+            try:
+                r2 = subprocess.run(["route", "-n"], capture_output=True, text=True, timeout=3)
+                for line in r2.stdout.splitlines():
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[0] in ("0.0.0.0", "default") and parts[1] != "0.0.0.0":
+                        gw_ip = parts[1]
+                        break
+            except Exception:
+                pass
+
+    return gw_ip or "192.168.1.1", None
+
+
+def get_default_gateway_v6() -> tuple[Optional[str], Optional[str]]:
+    """Varsayılan IPv6 gateway IP'sini döndürür (Cross-Platform)."""
+    import subprocess
+    import re
+    sys_name = platform.system()
+    if sys_name == "Darwin":
+        try:
+            r = subprocess.run(["netstat", "-rn", "-f", "inet6"], capture_output=True, text=True, timeout=3)
+            for line in r.stdout.splitlines():
+                if line.strip().startswith("default"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return strip_zone(parts[1]), None
+        except Exception:
+            pass
+    elif sys_name == "Linux":
+        try:
+            r = subprocess.run(["ip", "-6", "route", "show", "default"], capture_output=True, text=True, timeout=3)
+            m = re.search(r"default\s+via\s+([a-fA-F0-9:]+)", r.stdout)
+            if m:
+                return strip_zone(m.group(1)), None
+        except Exception:
+            pass
+
+    return "fe80::1", None
+
+
+def get_neighbor_cache_entries() -> list[str]:
+    """Sistem IPv6/IPv4 neighbor/ARP önbellek çıktı satırlarını döndürür (Cross-Platform)."""
+    import subprocess
+    sys_name = platform.system()
+    if sys_name == "Darwin":
+        try:
+            r = subprocess.run(["ndp", "-n", "-a"], capture_output=True, text=True, timeout=5)
+            return [l for l in r.stdout.splitlines() if l.strip()]
+        except Exception:
+            pass
+    elif sys_name == "Linux":
+        try:
+            r = subprocess.run(["ip", "-6", "neigh", "show"], capture_output=True, text=True, timeout=5)
+            lines = [l for l in r.stdout.splitlines() if l.strip()]
+            if not lines:
+                r2 = subprocess.run(["ip", "neigh", "show"], capture_output=True, text=True, timeout=5)
+                lines = [l for l in r2.stdout.splitlines() if l.strip()]
+            return lines
+        except Exception:
+            pass
+
+    return []
+
+
+def set_ip_forwarding(enable: bool, ipv6: bool = True) -> bool:
+    """
+    İşletim sisteminde IPv4 ve opsiyonel IPv6 paket iletimini (forwarding)
+    etkinleştirir veya devre dışı bırakır (Cross-Platform: Linux & macOS).
+    """
+    import subprocess
+    sys_name = platform.system()
+    val = "1" if enable else "0"
+    success = True
+
+    if sys_name == "Linux":
+        try:
+            with open("/proc/sys/net/ipv4/ip_forward", "w") as f:
+                f.write(val)
+        except Exception:
+            try:
+                subprocess.run(["sysctl", "-w", f"net.ipv4.ip_forward={val}"], capture_output=True, timeout=3)
+            except Exception:
+                success = False
+
+        if ipv6:
+            try:
+                with open("/proc/sys/net/ipv6/conf/all/forwarding", "w") as f:
+                    f.write(val)
+            except Exception:
+                try:
+                    subprocess.run(["sysctl", "-w", f"net.ipv6.conf.all.forwarding={val}"], capture_output=True, timeout=3)
+                except Exception:
+                    pass
+    elif sys_name == "Darwin":
+        try:
+            subprocess.run(["sysctl", "-w", f"net.inet.ip.forwarding={val}"], capture_output=True, timeout=3)
+            if ipv6:
+                subprocess.run(["sysctl", "-w", f"net.inet6.ip6.forwarding={val}"], capture_output=True, timeout=3)
+        except Exception:
+            success = False
+
+    return success
+
+
 # ─── Logging Altyapısı ────────────────────────────────────────────────────────
 
 def setup_logging(level: str = "INFO", log_file: str = "") -> logging.Logger:

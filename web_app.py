@@ -31,7 +31,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 from config import cfg
 from modules.utils import (
     get_local_ip, guess_network_range, validate_ip, validate_mac,
-    strip_zone, setup_logging
+    strip_zone, setup_logging, get_default_iface_name,
+    get_default_gateway_v4, get_default_gateway_v6,
+    get_neighbor_cache_entries, set_ip_forwarding
 )
 
 try:
@@ -67,11 +69,7 @@ app.config["JSON_SORT_KEYS"] = False
 
 
 def scapy_iface():
-    try:
-        from scapy.all import conf as sc
-        return str(sc.iface)
-    except Exception:
-        return "en0"
+    return get_default_iface_name()
 
 
 def ts():
@@ -86,57 +84,23 @@ state = AppState()
 # ─── Yardımcı: Otomatik Gateway Bul ──────────────────────────────────────────
 
 def auto_gateway() -> tuple:
-    """Sistemdeki varsayılan gateway IP ve MAC'i döndürür."""
+    """Sistemdeki varsayılan gateway IP ve MAC'i döndürür (Cross-Platform)."""
     try:
-        r = subprocess.run(
-            ["route", "-n", "get", "default"],
-            capture_output=True, text=True, timeout=3
-        )
-        gw_ip = None
-        for line in r.stdout.splitlines():
-            if "gateway:" in line:
-                gw_ip = line.split(":")[1].strip()
-                break
-
-        if not gw_ip:
-            # macOS netstat
-            r2 = subprocess.run(
-                ["netstat", "-rn", "-f", "inet"],
-                capture_output=True, text=True, timeout=3
-            )
-            for line in r2.stdout.splitlines():
-                if line.startswith("default"):
-                    gw_ip = line.split()[1]
-                    break
-
+        gw_ip, gw_mac = get_default_gateway_v4()
         devices = state.get_devices()
         if gw_ip and gw_ip in devices:
             gw_mac = devices[gw_ip]["mac"]
-        else:
-            gw_mac = None
-
         return gw_ip, gw_mac
-
     except Exception:
         return "192.168.1.1", None
 
 
 def auto_gateway_ipv6() -> tuple:
-    """Varsayılan IPv6 gateway'i döndürür."""
+    """Varsayılan IPv6 gateway'i döndürür (Cross-Platform)."""
     try:
-        r = subprocess.run(
-            ["netstat", "-rn", "-f", "inet6"],
-            capture_output=True, text=True, timeout=3
-        )
-        for line in r.stdout.splitlines():
-            if line.strip().startswith("default"):
-                parts = line.split()
-                if len(parts) >= 2:
-                    gw = strip_zone(parts[1])
-                    return gw, None
+        return get_default_gateway_v6()
     except Exception:
-        pass
-    return "fe80::1", None
+        return "fe80::1", None
 
 
 # ─── Yardımcı: İzolasyon ─────────────────────────────────────────────────────
@@ -148,8 +112,8 @@ def _do_isolate(ip: str, target_mac: str) -> dict:
 
     # ── ARP Spoofing ──
     try:
-        r = TrafficRedirector()
-        r.start(ip, gw_ip, enable_forwarding=False)
+        r = TrafficRedirector(iface=scapy_iface())
+        r.start(ip, gw_ip, target_mac=target_mac, gateway_mac=gw_mac, enable_forwarding=False)
         state.add_isolation(ip, "arp", r)
         result["arp"] = True
         state.log(f"[ARP] ✓ {ip} izole edildi (ARP)", "success")
@@ -157,12 +121,9 @@ def _do_isolate(ip: str, target_mac: str) -> dict:
         result["errors"].append(f"ARP: {e}")
         state.log(f"[ARP] ✗ {ip}: {e}", "error")
 
-    # ── IP Forwarding kapat ──
+    # ── IP Forwarding kapat (Cross-Platform) ──
     try:
-        subprocess.run(["sysctl", "-w", "net.inet.ip.forwarding=0"],
-                       capture_output=True, timeout=3)
-        subprocess.run(["sysctl", "-w", "net.inet6.ip6.forwarding=0"],
-                       capture_output=True, timeout=3)
+        set_ip_forwarding(False, ipv6=True)
         state.log("[SYS] IP Forwarding kapatıldı.", "warn")
     except Exception:
         pass
@@ -170,10 +131,9 @@ def _do_isolate(ip: str, target_mac: str) -> dict:
     # ── NDP Spoofing ─── (IPv6 adresi biliniyorsa)
     try:
         iface = scapy_iface()
-        ndp_out = subprocess.run(["ndp", "-n", "-a"],
-                                  capture_output=True, text=True, timeout=3).stdout
+        ndp_lines = get_neighbor_cache_entries()
         target_v6 = None
-        for line in ndp_out.splitlines():
+        for line in ndp_lines:
             if target_mac.lower() in line.lower():
                 parts = line.split()
                 if parts:
@@ -183,7 +143,7 @@ def _do_isolate(ip: str, target_mac: str) -> dict:
         if target_v6:
             gw_v6, _ = auto_gateway_ipv6()
             spoofer = NDPSpoofer(iface=iface)
-            spoofer.start(target_v6, gw_v6)
+            spoofer.start(target_v6, gw_v6, target_mac=target_mac)
             state.add_isolation(ip, "ndp", spoofer)
             result["ndp"] = True
             state.log(f"[NDP] ✓ {ip} izole edildi (IPv6: {target_v6})", "success")
@@ -216,13 +176,10 @@ def _do_restore(ip: str) -> bool:
         except Exception as e:
             state.log(f"[NDP] Onarım hatası: {e}", "error")
 
-    # Başka aktif izolasyon yoksa forwarding'i geri aç
+    # Başka aktif izolasyon yoksa forwarding'i geri aç (Cross-Platform)
     if not state.has_isolations():
         try:
-            subprocess.run(["sysctl", "-w", "net.inet.ip.forwarding=1"],
-                           capture_output=True, timeout=3)
-            subprocess.run(["sysctl", "-w", "net.inet6.ip6.forwarding=1"],
-                           capture_output=True, timeout=3)
+            set_ip_forwarding(True, ipv6=True)
             state.log("[SYS] IP Forwarding yeniden açıldı.", "info")
         except Exception:
             pass
@@ -611,9 +568,7 @@ def api_status():
 @app.route("/api/neighbor-cache")
 def api_neighbor_cache():
     try:
-        r = subprocess.run(["ndp", "-n", "-a"],
-                            capture_output=True, text=True, timeout=5)
-        lines = [l for l in r.stdout.splitlines() if l.strip()]
+        lines = get_neighbor_cache_entries()
         return jsonify({"ok": True, "lines": lines})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -662,16 +617,15 @@ def api_monitor_start():
         queues = []
         mitm   = None
 
-        # Şeffaf MITM: IP Forwarding ON → internet kesilmez
+        # Şeffaf MITM: IP Forwarding ON → internet kesilmez (Cross-Platform)
         try:
-            gw_ip, _ = auto_gateway()
+            gw_ip, gw_mac = auto_gateway()
             if gw_ip and ip != gw_ip:
-                subprocess.run(["sysctl", "-w", "net.inet.ip.forwarding=1"],
-                               capture_output=True, timeout=3)
-                subprocess.run(["sysctl", "-w", "net.inet6.ip6.forwarding=1"],
-                               capture_output=True, timeout=3)
-                mitm = TrafficRedirector()
-                mitm.start(ip, gw_ip, enable_forwarding=True)
+                set_ip_forwarding(True, ipv6=True)
+                dev = state.get_device(ip)
+                t_mac = mac or (dev["mac"] if dev else None)
+                mitm = TrafficRedirector(iface=scapy_iface())
+                mitm.start(ip, gw_ip, target_mac=t_mac, gateway_mac=gw_mac, enable_forwarding=True)
                 state.log(f"[MON] ✓ Şeffaf MITM aktif → {ip} (internet kesilmedi)", "success")
             else:
                 state.log(f"[MON] Gateway tespit edilemedi, pasif mod.", "warn")
@@ -819,12 +773,12 @@ def _shutdown(signum=None, frame=None):
     state.cleanup()
     sys.exit(0)
 
-atexit.register(state.cleanup)
-signal.signal(signal.SIGINT,  _shutdown)
-signal.signal(signal.SIGTERM, _shutdown)
-
 
 if __name__ == "__main__":
+    atexit.register(state.cleanup)
+    signal.signal(signal.SIGINT,  _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
     if os.geteuid() != 0:
         print("\n[!] UYARI: Root yetkisi gerekli → sudo python3 web_app.py\n")
 
